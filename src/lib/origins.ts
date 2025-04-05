@@ -11,16 +11,18 @@ export const ALLOWED_ORIGINS = [
   'https://yourdomain.com',
   
   // Development origins
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:3001',
+  ...(isDevelopment ? [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+  ] : []),
   
   // Add any additional origins here
   // 'https://staging.yourdomain.com',
   
-  // Allow all origins
-  '*'
+  // Allow all origins in development mode only
+  ...(isDevelopment ? ['*'] : [])
 ];
 
 /**
@@ -29,6 +31,12 @@ export const ALLOWED_ORIGINS = [
  * @returns boolean indicating if the origin is allowed
  */
 export function isAllowedOrigin(origin: string | undefined): boolean {
-  // Always return true to allow all origins
-  return true;
+  // If no origin provided or origin is undefined, reject
+  if (!origin) return false;
+  
+  // Check if wildcard is allowed
+  if (ALLOWED_ORIGINS.includes('*')) return true;
+  
+  // Check if the specific origin is allowed
+  return ALLOWED_ORIGINS.includes(origin);
 }
