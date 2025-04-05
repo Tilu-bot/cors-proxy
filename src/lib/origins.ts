@@ -12,16 +12,15 @@ export const ALLOWED_ORIGINS = [
   
   // Development origins
   'http://localhost:3000',
-  'http://localhost:3001',  // Add additional local development ports if needed
+  'http://localhost:3001',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:3001',
   
-  // Add any additional development/staging environments here
+  // Add any additional origins here
   // 'https://staging.yourdomain.com',
   
-  // WARNING: The following is less secure but convenient for development
-  // Remove or comment out for production deployments
-  ...(isDevelopment ? ['*'] : []),  // Allow all origins in development mode
+  // Allow all origins
+  '*'
 ];
 
 /**
@@ -30,7 +29,6 @@ export const ALLOWED_ORIGINS = [
  * @returns boolean indicating if the origin is allowed
  */
 export function isAllowedOrigin(origin: string | undefined): boolean {
-  if (!origin) return false;
-  if (ALLOWED_ORIGINS.includes('*')) return true;
-  return ALLOWED_ORIGINS.includes(origin);
+  // Always return true to allow all origins
+  return true;
 }
