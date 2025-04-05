@@ -1,60 +1,69 @@
-// TypeScript - Compatible with Vercel/Edge Functions
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const targetUrl = searchParams.get("url");
 
     if (!targetUrl) {
-      return new Response("❌ Missing 'url' parameter", { status: 400 });
+      return new Response("❌ Missing 'url' query parameter", { status: 400 });
     }
 
-    const headers: HeadersInit = {
-      "User-Agent": req.headers.get("user-agent") || "",
-      "Referer": targetUrl,
-    };
+    if (!/^https?:\/\//.test(targetUrl) || !/\.(m3u8|ts|mp4|m4s|webm|mp3|aac)(\?|$)/.test(targetUrl)) {
+      return new Response("❌ Invalid or unsupported media URL", { status: 403 });
+    }
 
     const range = req.headers.get("range");
-    if (range) {
-      headers["Range"] = range;
-    }
+    const userAgent = req.headers.get("user-agent") ?? "";
+    const referer = targetUrl;
 
-    const res = await fetch(targetUrl, {
-      headers,
+    const forwardedHeaders: HeadersInit = {
+      "User-Agent": userAgent,
+      "Referer": referer,
+    };
+
+    if (range) forwardedHeaders["Range"] = range;
+
+    const response = await fetch(targetUrl, {
+      method: "GET",
+      headers: forwardedHeaders,
     });
 
-    const responseHeaders = new Headers();
-    [
+    const passHeaders = [
       "content-type",
       "content-length",
-      "accept-ranges",
-      "content-range",
       "content-disposition",
+      "content-range",
+      "accept-ranges",
       "cache-control",
-      "etag",
       "last-modified",
-    ].forEach(h => {
-      const val = res.headers.get(h);
-      if (val) responseHeaders.set(h, val);
+      "etag",
+      "expires",
+    ];
+
+    const newHeaders = new Headers();
+
+    for (const h of passHeaders) {
+      const val = response.headers.get(h);
+      if (val) newHeaders.set(h, val);
+    }
+
+    newHeaders.set("Access-Control-Allow-Origin", "*");
+    newHeaders.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    newHeaders.set("Access-Control-Allow-Headers", "*");
+    newHeaders.set("Cross-Origin-Resource-Policy", "cross-origin");
+
+    return new Response(response.body, {
+      status: response.status,
+      headers: newHeaders,
     });
 
-    // CORS Headers
-    responseHeaders.set("Access-Control-Allow-Origin", "*");
-    responseHeaders.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-    responseHeaders.set("Access-Control-Allow-Headers", "*");
-    responseHeaders.set("Cross-Origin-Resource-Policy", "cross-origin");
-
-    return new Response(res.body, {
-      status: res.status,
-      headers: responseHeaders,
-    });
-
-  } catch (err) {
-    return new Response("❌ Proxy failed: " + (err as any).message, { status: 500 });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return new Response("❌ Proxy error: " + message, { status: 500 });
   }
 }
 
-export function OPTIONS() {
-  return new Response("🟢 OK", {
+export async function OPTIONS() {
+  return new Response("✅ Proxy OK", {
     status: 200,
     headers: {
       "Access-Control-Allow-Origin": "*",
