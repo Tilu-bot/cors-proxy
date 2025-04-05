@@ -6,6 +6,7 @@
 // Environment-based configuration
 const isDevelopment = process.env.NODE_ENV !== 'production';
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export const ALLOWED_ORIGINS = [
   // Production origins
   'https://yourdomain.com',
