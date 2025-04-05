@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // URL validation for security
+    // URL validation for media types
     if (!/^https?:\/\//.test(targetUrl) || !/\.(m3u8|ts|mp4|m4s|webm|mp3|aac)(\?|$)/.test(targetUrl)) {
       return new Response("❌ Invalid or unsupported media URL", { status: 403 });
     }
@@ -70,7 +70,6 @@ export async function GET(req: NextRequest) {
     }
 
     const range = req.headers.get("range");
-
     const forwardedHeaders: HeadersInit = {
       "User-Agent": userAgent || "Mozilla/5.0",
       "Referer": new URL(targetUrl).origin,
@@ -101,9 +100,6 @@ export async function GET(req: NextRequest) {
       return new Response(`❌ Upstream error: ${response.status}`, { status: response.status });
     }
 
-    const buffer = await response.arrayBuffer();
-    const duration = Date.now() - startTime;
-
     const passHeaders = [
       "content-type",
       "content-length",
@@ -128,9 +124,8 @@ export async function GET(req: NextRequest) {
     newHeaders.set("Access-Control-Allow-Headers", "*");
     newHeaders.set("Cross-Origin-Resource-Policy", "cross-origin");
 
-    // ✅ Caching rules
+    // Apply caching rules
     const extension = new URL(targetUrl).pathname.split(".").pop()?.toLowerCase();
-
     if (["mp4", "mp3", "webm", "ogg", "jpg", "png", "gif"].includes(extension || "")) {
       newHeaders.set("Cache-Control", "public, max-age=86400");
     } else if (extension === "m3u8") {
@@ -139,8 +134,12 @@ export async function GET(req: NextRequest) {
       newHeaders.set("Cache-Control", "public, max-age=604800");
     }
 
-    // ⛔ Bandwidth limit (track only large files)
+    // Get response as buffer to calculate size and track bandwidth
+    const buffer = await response.arrayBuffer();
+    const duration = Date.now() - startTime;
     const contentLength = buffer.byteLength;
+
+    // Bandwidth limit (track only large files)
     if (contentLength > 1024 * 1024) {
       const bandwidth = await trackBandwidth(ip, contentLength);
       if (!bandwidth.allowed) {
@@ -148,7 +147,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // ✅ Optional logging
+    // Log request
     await logProxyRequest({
       timestamp: new Date().toISOString(),
       ip,
