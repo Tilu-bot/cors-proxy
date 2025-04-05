@@ -51,8 +51,13 @@ export function shouldRenewToken(token: string): boolean {
   }
 }
 
-// Add to your player or frontend:
+// This function is meant for client-side use only
 export async function getMediaUrl(originalUrl: string): Promise<string> {
+  // Add check for browser environment
+  if (typeof window === 'undefined') {
+    throw new Error('getMediaUrl can only be used in browser environments');
+  }
+  
   let token = localStorage.getItem(`proxy_token_${originalUrl}`);
   const encodedUrl = encodeURIComponent(originalUrl);
   
