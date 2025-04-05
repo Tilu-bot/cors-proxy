@@ -31,7 +31,7 @@ export function verifyProxyToken(token: string, url: string): boolean {
       .digest('hex');
     
     return expectedSignature === signature;
-  } catch (err) {
+  } catch { 
     return false;
   }
 }
@@ -39,7 +39,7 @@ export function verifyProxyToken(token: string, url: string): boolean {
 export function shouldRenewToken(token: string): boolean {
   try {
     const decoded = Buffer.from(token, 'base64url').toString();
-    const [_, expiresAtStr] = decoded.split(':');
+    const [, expiresAtStr] = decoded.split(':');
     
     // Renew if less than 10 minutes remaining
     const expiresAt = parseInt(expiresAtStr, 10);
@@ -52,7 +52,7 @@ export function shouldRenewToken(token: string): boolean {
 }
 
 // Add to your player or frontend:
-async function getMediaUrl(originalUrl) {
+export async function getMediaUrl(originalUrl: string): Promise<string> {
   let token = localStorage.getItem(`proxy_token_${originalUrl}`);
   const encodedUrl = encodeURIComponent(originalUrl);
   
@@ -61,7 +61,9 @@ async function getMediaUrl(originalUrl) {
     const response = await fetch(`/api/generate-token?url=${encodedUrl}`);
     const data = await response.json();
     token = data.token;
-    localStorage.setItem(`proxy_token_${originalUrl}`, token);
+    if (token) {
+      localStorage.setItem(`proxy_token_${originalUrl}`, token);
+    }
   }
   
   return `/api/proxy?url=${encodedUrl}&token=${token}`;

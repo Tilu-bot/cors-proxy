@@ -3,6 +3,7 @@ import { verifyProxyToken } from '@/lib/token';
 import { checkRateLimit, trackBandwidth } from '@/lib/rate-limiter';
 import { logProxyRequest } from '@/lib/logger';
 
+// Define ALLOWED_ORIGINS here rather than importing it
 const ALLOWED_ORIGINS = [
   'your-main-site.com',
   'your-app.vercel.app',
