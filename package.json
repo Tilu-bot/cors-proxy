@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@upstash/redis": "^1.34.6",
     "cors-proxy": "file:",
     "next": "15.2.4",
     "react": "^19.0.0",
