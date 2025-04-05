@@ -1,86 +1,60 @@
-// TypeScript - Edge Compatible Enhanced Proxy API
-
+// TypeScript - Compatible with Vercel/Edge Functions
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const targetUrl = searchParams.get("url");
 
     if (!targetUrl) {
-      return new Response("❌ Missing 'url' query parameter", { status: 400 });
+      return new Response("❌ Missing 'url' parameter", { status: 400 });
     }
 
-    const range = req.headers.get("range");
-    const userAgent = req.headers.get("user-agent") ?? "";
-    const referer = targetUrl;
-
-    const forwardedHeaders: HeadersInit = {
-      "User-Agent": userAgent,
-      "Referer": referer,
-      "Origin": new URL(targetUrl).origin,
+    const headers: HeadersInit = {
+      "User-Agent": req.headers.get("user-agent") || "",
+      "Referer": targetUrl,
     };
 
+    const range = req.headers.get("range");
     if (range) {
-      forwardedHeaders["Range"] = range;
+      headers["Range"] = range;
     }
 
-    const targetRes = await fetch(targetUrl, {
-      method: "GET",
-      headers: forwardedHeaders,
+    const res = await fetch(targetUrl, {
+      headers,
     });
 
-    const contentTypeRaw = targetRes.headers.get("content-type") ?? "";
-
-    // Fix content-type if .m3u8 is wrong
-    const finalContentType = targetUrl.includes(".m3u8")
-      ? "application/vnd.apple.mpegurl"
-      : targetUrl.includes(".ts")
-      ? "video/mp2t"
-      : contentTypeRaw;
-
-    const newHeaders = new Headers();
-    newHeaders.set("Content-Type", finalContentType);
-    newHeaders.set("Access-Control-Allow-Origin", "*");
-    newHeaders.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-    newHeaders.set("Access-Control-Allow-Headers", "*");
-    newHeaders.set("Cross-Origin-Resource-Policy", "cross-origin");
-
-    // Stream .m3u8 through transformer if needed
-    if (targetUrl.includes(".m3u8")) {
-      const text = await targetRes.text();
-
-      // Rewrite URLs to go via proxy (handle relative and absolute URLs)
-      const base = new URL(targetUrl);
-      const transformed = text.replace(
-        /^(?!#)(.+)$/gm,
-        (line) => {
-          try {
-            const absoluteUrl = new URL(line, base).toString();
-            return `/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
-          } catch {
-            return line;
-          }
-        }
-      );
-
-      return new Response(transformed, {
-        status: targetRes.status,
-        headers: newHeaders,
-      });
-    }
-
-    // Default: stream body as-is
-    return new Response(targetRes.body, {
-      status: targetRes.status,
-      headers: newHeaders,
+    const responseHeaders = new Headers();
+    [
+      "content-type",
+      "content-length",
+      "accept-ranges",
+      "content-range",
+      "content-disposition",
+      "cache-control",
+      "etag",
+      "last-modified",
+    ].forEach(h => {
+      const val = res.headers.get(h);
+      if (val) responseHeaders.set(h, val);
     });
+
+    // CORS Headers
+    responseHeaders.set("Access-Control-Allow-Origin", "*");
+    responseHeaders.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    responseHeaders.set("Access-Control-Allow-Headers", "*");
+    responseHeaders.set("Cross-Origin-Resource-Policy", "cross-origin");
+
+    return new Response(res.body, {
+      status: res.status,
+      headers: responseHeaders,
+    });
+
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return new Response("❌ Proxy Error: " + msg, { status: 500 });
+    return new Response("❌ Proxy failed: " + (err as any).message, { status: 500 });
   }
 }
 
-export async function OPTIONS() {
-  return new Response("🟢 Proxy OPTIONS OK", {
+export function OPTIONS() {
+  return new Response("🟢 OK", {
     status: 200,
     headers: {
       "Access-Control-Allow-Origin": "*",
@@ -89,4 +63,3 @@ export async function OPTIONS() {
     },
   });
 }
-
