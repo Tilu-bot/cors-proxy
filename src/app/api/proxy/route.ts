@@ -1,4 +1,6 @@
-export async function GET(req: Request) {
+import type { NextRequest } from "next/server";
+
+export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const targetUrl = searchParams.get("url");
