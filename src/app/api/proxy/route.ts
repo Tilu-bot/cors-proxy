@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 
+// Add this function to rewrite URLs in M3U8 content
+function rewriteM3U8Urls(m3u8Content: string, originalUrl: string, proxyBaseUrl: string): string {
+  const baseUrl = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
+  
+  // Replace relative URLs with absolute proxied URLs
+  return m3u8Content.replace(/^(?!#)(.+\.ts|.+\.m3u8)$/gm, line => {
+    // For each media segment or playlist URL in the manifest
+    const absoluteUrl = new URL(line, baseUrl).href;
+    return `${proxyBaseUrl}?url=${encodeURIComponent(absoluteUrl)}`;
+  });
+}
+
 async function logRequest(ip: string | null, url: string, status: number, bytes: number, userAgent: string | null, referer: string | null, duration: number) {
   try {
     const query = `
@@ -57,7 +69,20 @@ async function handleProxyRequest(request: NextRequest) {
     const contentType = response.headers.get('Content-Type') || '';
     let responseData;
     
-    if (contentType.includes('application/json')) {
+    // Check if it's an m3u8 file that needs URL rewriting
+    const isM3U8 = contentType.includes('application/vnd.apple.mpegurl') || 
+                   contentType.includes('application/x-mpegurl') ||
+                   targetUrl.endsWith('.m3u8');
+                   
+    if (isM3U8) {
+      const text = await response.text();
+      const protocol = request.headers.get('x-forwarded-proto') || 'https';
+      const host = request.headers.get('host') || '';
+      const proxyBaseUrl = `${protocol}://${host}/api/proxy`;
+      
+      // Rewrite URLs in m3u8 content
+      responseData = rewriteM3U8Urls(text, targetUrl, proxyBaseUrl);
+    } else if (contentType.includes('application/json')) {
       responseData = await response.text(); // Keep as text to avoid parsing errors
     } else if (contentType.includes('text/')) {
       responseData = await response.text();
@@ -98,7 +123,7 @@ async function handleProxyRequest(request: NextRequest) {
     logRequest(ip, targetUrl, status, responseSize, userAgent, referer, duration);
     
     return res;
-  } catch {
+  } catch (error) {
     status = 500;
     const errorMessage = 'Error fetching from target URL';
     responseSize = errorMessage.length;
