@@ -1,28 +1,27 @@
-import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { ALLOWED_ORIGINS } from './lib/origins';
+
+const ipRequests: Record<string, { count: number, resetTime: number }> = {};
+
+const RATE_LIMIT = process.env.RATE_LIMIT ? parseInt(process.env.RATE_LIMIT) : 100;
+const RATE_WINDOW = process.env.RATE_WINDOW_MS ? parseInt(process.env.RATE_WINDOW_MS) : 60 * 1000;
 
 export function middleware(request: NextRequest) {
-  // Get the origin from the request
-  const origin = request.headers.get('origin');
-  
-  // Check if the origin is allowed
-  const isAllowedOrigin = origin && ALLOWED_ORIGINS.includes(origin);
-  
-  // Get the response from the target endpoint
-  const response = NextResponse.next();
-  
-  // Set CORS headers
-  if (isAllowedOrigin) {
-    response.headers.set('Access-Control-Allow-Origin', origin);
-    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    response.headers.set('Access-Control-Allow-Credentials', 'true');
-  }
-  
-  return response;
-}
+  const ip = request.headers.get('x-forwarded-for') || 'unknown';
+  const currentTime = Date.now();
 
-export const config = {
-  matcher: '/api/:path*',
-};
+  if (!ipRequests[ip]) {
+    ipRequests[ip] = { count: 1, resetTime: currentTime + RATE_WINDOW };
+  } else {
+    if (currentTime > ipRequests[ip].resetTime) {
+      ipRequests[ip] = { count: 1, resetTime: currentTime + RATE_WINDOW };
+    } else {
+      ipRequests[ip].count++;
+    }
+  }
+
+  if (ipRequests[ip].count > RATE_LIMIT) {
+    return new Response('Too Many Requests', { status: 429 });
+  }
+
+  return new Response('OK', { status: 200 });
+}

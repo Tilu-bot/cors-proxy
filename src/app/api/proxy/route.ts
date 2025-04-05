@@ -1,183 +1,153 @@
-import type { NextRequest } from "next/server";
-import { verifyProxyToken } from '@/lib/token';
-import { checkRateLimit, trackBandwidth } from '@/lib/rate-limiter';
-import { logProxyRequest } from '@/lib/logger';
+import { NextRequest, NextResponse } from 'next/server';
+import { pool } from '@/lib/db';
 
-// Define ALLOWED_ORIGINS here rather than importing it
-const ALLOWED_ORIGINS = [
-  'your-main-site.com',
-  'your-app.vercel.app',
-  'localhost:3000'
-];
-
-export const config = {
-  runtime: 'edge', // Use Edge runtime for better performance
-};
-
-export async function GET(req: NextRequest) {
-  const startTime = Date.now();
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  const userAgent = req.headers.get('user-agent') || '';
-  const referer = req.headers.get('referer') || '';
-
+async function logRequest(ip: string | null, url: string, status: number, bytes: number, userAgent: string | null, referer: string | null, duration: number) {
   try {
-    const { searchParams } = new URL(req.url);
-    const targetUrl = searchParams.get("url");
-    const token = searchParams.get("token");
-
-    if (!targetUrl) {
-      return new Response("❌ Missing 'url' query parameter", { status: 400 });
-    }
-
-    // Token validation (disable in development for easier testing)
-    if (process.env.NODE_ENV === 'production') {
-      if (!token || !verifyProxyToken(token, targetUrl)) {
-        return new Response("❌ Invalid or expired token", { status: 403 });
-      }
-    }
-
-    // URL validation for media types
-    if (!/^https?:\/\//.test(targetUrl) || !/\.(m3u8|ts|mp4|m4s|webm|mp3|aac)(\?|$)/.test(targetUrl)) {
-      return new Response("❌ Invalid or unsupported media URL", { status: 403 });
-    }
-
-    const origin = req.headers.get('origin');
+    const query = `
+      INSERT INTO proxy_logs (ip, url, status, bytes, user_agent, referer, duration, timestamp)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+    `;
     
-    // Skip origin check in development
-    if (process.env.NODE_ENV !== 'development') {
-      const isAllowed = referer && ALLOWED_ORIGINS.some(domain => 
-        referer.includes(domain)
-      ) || origin && ALLOWED_ORIGINS.some(domain => 
-        origin.includes(domain)
-      );
-      
-      if (!isAllowed) {
-        return new Response("❌ Unauthorized origin", { status: 403 });
-      }
-    }
-
-    // Check rate limit after validating the request is legitimate
-    const rateLimit = await checkRateLimit(ip);
-    if (!rateLimit.allowed) {
-      return new Response("❌ Rate limit exceeded", {
-        status: 429,
-        headers: {
-          'Retry-After': String(rateLimit.reset - Math.floor(Date.now() / 1000)),
-          'X-RateLimit-Limit': String(100),
-          'X-RateLimit-Remaining': String(rateLimit.remaining),
-          'X-RateLimit-Reset': String(rateLimit.reset)
-        }
-      });
-    }
-
-    const range = req.headers.get("range");
-    const forwardedHeaders: HeadersInit = {
-      "User-Agent": userAgent || "Mozilla/5.0",
-      "Referer": new URL(targetUrl).origin,
-      "Origin": new URL(targetUrl).origin,
-    };
-
-    if (range) forwardedHeaders["Range"] = range;
-
-    const response = await fetch(targetUrl, {
-      method: "GET",
-      headers: forwardedHeaders,
-      signal: AbortSignal.timeout(30000),
-    });
-
-    if (!response.ok && response.status !== 206) {
-      // Log failed requests
-      await logProxyRequest({
-        timestamp: new Date().toISOString(),
-        ip,
-        url: targetUrl,
-        status: response.status,
-        bytes: 0,
-        userAgent,
-        referer: referer || 'unknown',
-        duration: Date.now() - startTime
-      });
-      
-      return new Response(`❌ Upstream error: ${response.status}`, { status: response.status });
-    }
-
-    const passHeaders = [
-      "content-type",
-      "content-length",
-      "content-disposition",
-      "content-range",
-      "accept-ranges",
-      "cache-control",
-      "last-modified",
-      "etag",
-      "expires",
-    ];
-
-    const newHeaders = new Headers();
-
-    for (const h of passHeaders) {
-      const val = response.headers.get(h);
-      if (val) newHeaders.set(h, val);
-    }
-
-    newHeaders.set("Access-Control-Allow-Origin", "*");
-    newHeaders.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-    newHeaders.set("Access-Control-Allow-Headers", "*");
-    newHeaders.set("Cross-Origin-Resource-Policy", "cross-origin");
-
-    // Apply caching rules
-    const extension = new URL(targetUrl).pathname.split(".").pop()?.toLowerCase();
-    if (["mp4", "mp3", "webm", "ogg", "jpg", "png", "gif"].includes(extension || "")) {
-      newHeaders.set("Cache-Control", "public, max-age=86400");
-    } else if (extension === "m3u8") {
-      newHeaders.set("Cache-Control", "public, max-age=60");
-    } else if (extension === "ts") {
-      newHeaders.set("Cache-Control", "public, max-age=604800");
-    }
-
-    // Get response as buffer to calculate size and track bandwidth
-    const buffer = await response.arrayBuffer();
-    const duration = Date.now() - startTime;
-    const contentLength = buffer.byteLength;
-
-    // Bandwidth limit (track only large files)
-    if (contentLength > 1024 * 1024) {
-      const bandwidth = await trackBandwidth(ip, contentLength);
-      if (!bandwidth.allowed) {
-        return new Response("❌ Bandwidth limit exceeded", { status: 429 });
-      }
-    }
-
-    // Log request
-    await logProxyRequest({
-      timestamp: new Date().toISOString(),
-      ip,
-      url: targetUrl,
-      status: response.status,
-      bytes: contentLength,
-      userAgent,
-      referer: referer || "",
-      duration,
-    });
-
-    return new Response(buffer, {
-      status: response.status,
-      headers: newHeaders,
-    });
-
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return new Response("❌ Proxy error: " + message, { status: 500 });
+    await pool.query(query, [
+      ip || '0.0.0.0',
+      url,
+      status,
+      bytes,
+      userAgent || '',
+      referer || '',
+      duration
+    ]);
+  } catch (error) {
+    console.error('Failed to log request:', error);
   }
 }
 
+async function handleProxyRequest(request: NextRequest) {
+  const targetUrl = request.nextUrl.searchParams.get('url');
+  const startTime = Date.now();
+  let status = 400;
+  let responseSize = 0;
+  
+  if (!targetUrl) {
+    return new NextResponse('Missing url parameter', { status });
+  }
+  
+  try {
+    // Copy original request headers and method
+    const headers = new Headers();
+    request.headers.forEach((value, key) => {
+      // Skip host-specific headers
+      if (!['host', 'origin', 'referer'].includes(key.toLowerCase())) {
+        headers.append(key, value);
+      }
+    });
+    
+    // Forward the request with the same method and body
+    const fetchOptions: RequestInit = {
+      method: request.method,
+      headers,
+      // Only include body for methods that support it
+      ...(request.method !== 'GET' && request.method !== 'HEAD' ? { body: await request.blob() } : {})
+    };
+    
+    const response = await fetch(targetUrl, fetchOptions);
+    status = response.status;
+    
+    // Get response data based on content type
+    const contentType = response.headers.get('Content-Type') || '';
+    let responseData;
+    
+    if (contentType.includes('application/json')) {
+      responseData = await response.text(); // Keep as text to avoid parsing errors
+    } else if (contentType.includes('text/')) {
+      responseData = await response.text();
+    } else {
+      responseData = await response.arrayBuffer();
+    }
+    
+    responseSize = typeof responseData === 'string' ? responseData.length : responseData.byteLength || 0;
+    
+    // Create response headers
+    const responseHeaders = new Headers();
+    response.headers.forEach((value, key) => {
+      // Skip CORS headers from the original response
+      if (!key.toLowerCase().startsWith('access-control-')) {
+        responseHeaders.append(key, value);
+      }
+    });
+    
+    // Add CORS headers
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    
+    // Create the response
+    const res = new NextResponse(responseData, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders
+    });
+    
+    // Log the request after it's processed
+    const duration = Date.now() - startTime;
+    const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
+    const userAgent = request.headers.get('user-agent');
+    const referer = request.headers.get('referer');
+    
+    // Log asynchronously without waiting
+    logRequest(ip, targetUrl, status, responseSize, userAgent, referer, duration);
+    
+    return res;
+  } catch {
+    status = 500;
+    const errorMessage = 'Error fetching from target URL';
+    responseSize = errorMessage.length;
+    
+    // Log failed request
+    const duration = Date.now() - startTime;
+    const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
+    const userAgent = request.headers.get('user-agent');
+    const referer = request.headers.get('referer');
+    
+    // Log asynchronously without waiting
+    logRequest(ip, targetUrl, status, responseSize, userAgent, referer, duration);
+    
+    return new NextResponse(errorMessage, { 
+      status,
+      headers: {
+        'Content-Type': 'text/plain',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+      }
+    });
+  }
+}
+
+export async function GET(request: NextRequest) {
+  return handleProxyRequest(request);
+}
+
+export async function POST(request: NextRequest) {
+  return handleProxyRequest(request);
+}
+
+export async function PUT(request: NextRequest) {
+  return handleProxyRequest(request);
+}
+
+export async function DELETE(request: NextRequest) {
+  return handleProxyRequest(request);
+}
+
 export async function OPTIONS() {
-  return new Response(null, {
-    status: 200,
+  return new NextResponse(null, {
+    status: 204,
     headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "*",
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+      'Access-Control-Max-Age': '86400',
     },
   });
 }
