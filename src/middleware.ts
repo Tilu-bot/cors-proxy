@@ -2,33 +2,32 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from 'redis';
 
 const redis = createClient({
-  url: process.env.REDIS_URL, // This will be auto-injected by Vercel
+  url: process.env.REDIS_URL,
 });
 
-redis.connect().catch(console.error);
+const redisConnectPromise = redis.connect().catch(console.error);
 
-const RATE_LIMIT = parseInt(process.env.RATE_LIMIT || '100');
-const RATE_WINDOW = parseInt(process.env.RATE_WINDOW_MS || `${60 * 1000}`); // in ms
+const RATE_LIMIT = parseInt(process.env.RATE_LIMIT || '100');        // Max 100 requests
+const RATE_WINDOW = parseInt(process.env.RATE_WINDOW_MS || '60000'); // 60 seconds
 
 export async function middleware(request: NextRequest) {
   const ip = request.headers.get('x-forwarded-for') || 'unknown';
 
   if (ip === 'unknown') {
-    return NextResponse.next(); // Or block unknown IPs if needed
+    return NextResponse.next(); // Optional: block if needed
   }
 
   const key = `rate-limit:${ip}`;
-  const currentTime = Date.now();
 
   try {
-    const tx = redis.multi();
+    await redisConnectPromise;
 
-    tx.incr(key);                         // Increase the count
-    tx.pttl(key);                         // Get remaining TTL
+    const tx = redis.multi();
+    tx.incr(key);
+    tx.pttl(key);
     const [count, ttl] = await tx.exec() as [number, number];
 
     if (count === 1) {
-      // First request, set TTL
       await redis.pexpire(key, RATE_WINDOW);
     }
 
@@ -41,9 +40,15 @@ export async function middleware(request: NextRequest) {
       });
     }
 
-    return NextResponse.next();
-  } catch (err) {
-    console.error('Redis Rate Limiter Error:', err);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return NextResponse.next({
+      headers: {
+        'X-RateLimit-Limit': RATE_LIMIT.toString(),
+        'X-RateLimit-Remaining': (RATE_LIMIT - count).toString(),
+        'X-RateLimit-Reset': `${Math.ceil((ttl || RATE_WINDOW) / 1000)}`,
+      },
+    });
+  } catch (error) {
+    console.error('Rate limiter middleware error:', error);
+    return NextResponse.next(); // Fail-open
   }
 }
