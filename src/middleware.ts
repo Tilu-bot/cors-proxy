@@ -1,27 +1,49 @@
-import type { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from 'redis';
 
-const ipRequests: Record<string, { count: number, resetTime: number }> = {};
+const redis = createClient({
+  url: process.env.REDIS_URL, // This will be auto-injected by Vercel
+});
 
-const RATE_LIMIT = process.env.RATE_LIMIT ? parseInt(process.env.RATE_LIMIT) : 100;
-const RATE_WINDOW = process.env.RATE_WINDOW_MS ? parseInt(process.env.RATE_WINDOW_MS) : 60 * 1000;
+redis.connect().catch(console.error);
 
-export function middleware(request: NextRequest) {
+const RATE_LIMIT = parseInt(process.env.RATE_LIMIT || '100');
+const RATE_WINDOW = parseInt(process.env.RATE_WINDOW_MS || `${60 * 1000}`); // in ms
+
+export async function middleware(request: NextRequest) {
   const ip = request.headers.get('x-forwarded-for') || 'unknown';
+
+  if (ip === 'unknown') {
+    return NextResponse.next(); // Or block unknown IPs if needed
+  }
+
+  const key = `rate-limit:${ip}`;
   const currentTime = Date.now();
 
-  if (!ipRequests[ip]) {
-    ipRequests[ip] = { count: 1, resetTime: currentTime + RATE_WINDOW };
-  } else {
-    if (currentTime > ipRequests[ip].resetTime) {
-      ipRequests[ip] = { count: 1, resetTime: currentTime + RATE_WINDOW };
-    } else {
-      ipRequests[ip].count++;
+  try {
+    const tx = redis.multi();
+
+    tx.incr(key);                         // Increase the count
+    tx.pttl(key);                         // Get remaining TTL
+    const [count, ttl] = await tx.exec() as [number, number];
+
+    if (count === 1) {
+      // First request, set TTL
+      await redis.pexpire(key, RATE_WINDOW);
     }
-  }
 
-  if (ipRequests[ip].count > RATE_LIMIT) {
-    return new Response('Too Many Requests', { status: 429 });
-  }
+    if (count > RATE_LIMIT) {
+      return new NextResponse('Too Many Requests', {
+        status: 429,
+        headers: {
+          'Retry-After': `${Math.ceil((ttl || RATE_WINDOW) / 1000)}`,
+        },
+      });
+    }
 
-  return new Response('OK', { status: 200 });
+    return NextResponse.next();
+  } catch (err) {
+    console.error('Redis Rate Limiter Error:', err);
+    return new NextResponse('Internal Server Error', { status: 500 });
+  }
 }
