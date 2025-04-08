@@ -7,18 +7,38 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 function rewriteM3U8Urls(m3u8Content: string, originalUrl: string, proxyBaseUrl: string): string {
   const baseUrl = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
-  return m3u8Content.replace(/^(?!#)(.+\.(ts|m3u8))$/gm, line => {
-    const absoluteUrl = new URL(line, baseUrl).href;
-    return `${proxyBaseUrl}?url=${encodeURIComponent(absoluteUrl)}`;
-  });
+
+  return m3u8Content.replace(
+    /^(?!#)(.+)$/gm,
+    line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return trimmed;
+
+      try {
+        const absoluteUrl = new URL(trimmed, baseUrl).href;
+        return `${proxyBaseUrl}?url=${encodeURIComponent(absoluteUrl)}`;
+      } catch {
+        return trimmed;
+      }
+    }
+  );
 }
 
 function rewriteVTTUrls(vttContent: string, originalUrl: string): string {
-  // Optional: Modify cue styling, intro/outro markers, or convert relative paths if needed
+  // Optional: Enhance styling or cue images in future
   return vttContent;
 }
 
-async function logRequest(ip: string, url: string, status: number, bytes: number, userAgent: string, referer: string, duration: number, type: string) {
+async function logRequest(
+  ip: string,
+  url: string,
+  status: number,
+  bytes: number,
+  userAgent: string,
+  referer: string,
+  duration: number,
+  type: string
+) {
   try {
     await pool.query(
       `INSERT INTO proxy_logs (ip, url, status, bytes, user_agent, referer, duration, type, timestamp)
@@ -145,19 +165,15 @@ async function handleProxyRequest(request: NextRequest) {
 export async function GET(req: NextRequest) {
   return handleProxyRequest(req);
 }
-
 export async function POST(req: NextRequest) {
   return handleProxyRequest(req);
 }
-
 export async function PUT(req: NextRequest) {
   return handleProxyRequest(req);
 }
-
 export async function DELETE(req: NextRequest) {
   return handleProxyRequest(req);
 }
-
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
