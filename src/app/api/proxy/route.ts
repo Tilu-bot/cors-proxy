@@ -1,168 +1,133 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
+import { Redis } from '@upstash/redis';
 
-// Add this function to rewrite URLs in M3U8 content
+const redis = Redis.fromEnv();
+
 function rewriteM3U8Urls(m3u8Content: string, originalUrl: string, proxyBaseUrl: string): string {
   const baseUrl = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
-  
-  // Replace relative URLs with absolute proxied URLs
-  return m3u8Content.replace(/^(?!#)(.+\.ts|.+\.m3u8)$/gm, line => {
-    // For each media segment or playlist URL in the manifest
+  return m3u8Content.replace(/^(?!#)(.+\.(ts|m3u8))$/gm, line => {
     const absoluteUrl = new URL(line, baseUrl).href;
     return `${proxyBaseUrl}?url=${encodeURIComponent(absoluteUrl)}`;
   });
 }
 
-async function logRequest(ip: string | null, url: string, status: number, bytes: number, userAgent: string | null, referer: string | null, duration: number) {
+async function logRequest(ip: string, url: string, status: number, bytes: number, userAgent: string, referer: string, duration: number) {
   try {
-    const query = `
-      INSERT INTO proxy_logs (ip, url, status, bytes, user_agent, referer, duration, timestamp)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-    `;
-    
-    await pool.query(query, [
-      ip || '0.0.0.0',
-      url,
-      status,
-      bytes,
-      userAgent || '',
-      referer || '',
-      duration
-    ]);
-  } catch (error) {
-    console.error('Failed to log request:', error);
+    await pool.query(
+      `INSERT INTO proxy_logs (ip, url, status, bytes, user_agent, referer, duration, timestamp)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+      [ip, url, status, bytes, userAgent, referer, duration]
+    );
+  } catch (err) {
+    console.error('DB log error:', err);
   }
 }
 
 async function handleProxyRequest(request: NextRequest) {
-  const targetUrl = request.nextUrl.searchParams.get('url');
-  const startTime = Date.now();
-  let status = 400;
-  let responseSize = 0;
-  
-  if (!targetUrl) {
-    return new NextResponse('Missing url parameter', { status });
-  }
-  
+  const url = request.nextUrl.searchParams.get('url');
+  const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
+  const userAgent = request.headers.get('user-agent') || '';
+  const referer = request.headers.get('referer') || '';
+  const start = Date.now();
+
+  if (!url) return new NextResponse('Missing url parameter', { status: 400 });
+
   try {
-    // Copy original request headers and method
+    const cached = await redis.get(url);
+    if (cached) {
+      return new NextResponse(cached as string, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/vnd.apple.mpegurl',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+
     const headers = new Headers();
-    request.headers.forEach((value, key) => {
-      // Skip host-specific headers
-      if (!['host', 'origin', 'referer'].includes(key.toLowerCase())) {
-        headers.append(key, value);
-      }
+    request.headers.forEach((val, key) => {
+      if (!['host', 'origin', 'referer'].includes(key)) headers.append(key, val);
     });
-    
-    // Forward the request with the same method and body
+
     const fetchOptions: RequestInit = {
       method: request.method,
       headers,
-      // Only include body for methods that support it
       ...(request.method !== 'GET' && request.method !== 'HEAD' ? { body: await request.blob() } : {})
     };
-    
-    const response = await fetch(targetUrl, fetchOptions);
-    status = response.status;
-    
-    // Get response data based on content type
-    const contentType = response.headers.get('Content-Type') || '';
-    let responseData;
-    
-    // Check if it's an m3u8 file that needs URL rewriting
-    const isM3U8 = contentType.includes('application/vnd.apple.mpegurl') || 
-                   contentType.includes('application/x-mpegurl') ||
-                   targetUrl.endsWith('.m3u8');
-                   
+
+    const res = await fetch(url, fetchOptions);
+    const contentType = res.headers.get('Content-Type') || '';
+    let body;
+    let size = 0;
+
+    const isM3U8 = contentType.includes('mpegurl') || url.endsWith('.m3u8');
+
     if (isM3U8) {
-      const text = await response.text();
-      const protocol = request.headers.get('x-forwarded-proto') || 'https';
+      const txt = await res.text();
+      const proto = request.headers.get('x-forwarded-proto') || 'https';
       const host = request.headers.get('host') || '';
-      const proxyBaseUrl = `${protocol}://${host}/api/proxy`;
-      
-      // Rewrite URLs in m3u8 content
-      responseData = rewriteM3U8Urls(text, targetUrl, proxyBaseUrl);
-    } else if (contentType.includes('application/json')) {
-      responseData = await response.text(); // Keep as text to avoid parsing errors
-    } else if (contentType.includes('text/')) {
-      responseData = await response.text();
+      const proxyUrl = `${proto}://${host}/api/proxy`;
+      body = rewriteM3U8Urls(txt, url, proxyUrl);
+      await redis.set(url, body, { ex: 60 * 10 }); // cache 10 mins
+    } else if (contentType.includes('text/') || contentType.includes('json')) {
+      body = await res.text();
     } else {
-      responseData = await response.arrayBuffer();
+      body = await res.arrayBuffer();
     }
-    
-    responseSize = typeof responseData === 'string' ? responseData.length : responseData.byteLength || 0;
-    
-    // Create response headers
+
+    size = typeof body === 'string' ? body.length : body.byteLength || 0;
+
     const responseHeaders = new Headers();
-    response.headers.forEach((value, key) => {
-      // Skip CORS headers from the original response
-      if (!key.toLowerCase().startsWith('access-control-')) {
-        responseHeaders.append(key, value);
-      }
+    res.headers.forEach((val, key) => {
+      if (!key.startsWith('access-control-')) responseHeaders.append(key, val);
     });
-    
-    // Add CORS headers
+
     responseHeaders.set('Access-Control-Allow-Origin', '*');
     responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-    
-    // Create the response
-    const res = new NextResponse(responseData, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders
+
+    const finalRes = new NextResponse(body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers: responseHeaders,
     });
-    
-    // Log the request after it's processed
-    const duration = Date.now() - startTime;
-    const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
-    const userAgent = request.headers.get('user-agent');
-    const referer = request.headers.get('referer');
-    
-    // Log asynchronously without waiting
-    logRequest(ip, targetUrl, status, responseSize, userAgent, referer, duration);
-    
-    return res;
-  } catch (error) {
-    status = 500;
-    const errorMessage = 'Error fetching from target URL';
-    responseSize = errorMessage.length;
-    
-    // Log failed request
-    const duration = Date.now() - startTime;
-    const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
-    const userAgent = request.headers.get('user-agent');
-    const referer = request.headers.get('referer');
-    
-    // Log asynchronously without waiting
-    logRequest(ip, targetUrl, status, responseSize, userAgent, referer, duration);
-    
-    return new NextResponse(errorMessage, { 
-      status,
+
+    const duration = Date.now() - start;
+    logRequest(ip, url, res.status, size, userAgent, referer, duration);
+
+    return finalRes;
+  } catch (err) {
+    const msg = 'Fetch failed';
+    const duration = Date.now() - start;
+    logRequest(ip, url, 500, msg.length, userAgent, referer, duration);
+
+    return new NextResponse(msg, {
+      status: 500,
       headers: {
         'Content-Type': 'text/plain',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-      }
+      },
     });
   }
 }
 
-export async function GET(request: NextRequest) {
-  return handleProxyRequest(request);
+export async function GET(req: NextRequest) {
+  return handleProxyRequest(req);
 }
 
-export async function POST(request: NextRequest) {
-  return handleProxyRequest(request);
+export async function POST(req: NextRequest) {
+  return handleProxyRequest(req);
 }
 
-export async function PUT(request: NextRequest) {
-  return handleProxyRequest(request);
+export async function PUT(req: NextRequest) {
+  return handleProxyRequest(req);
 }
 
-export async function DELETE(request: NextRequest) {
-  return handleProxyRequest(request);
+export async function DELETE(req: NextRequest) {
+  return handleProxyRequest(req);
 }
 
 export async function OPTIONS() {
@@ -176,3 +141,4 @@ export async function OPTIONS() {
     },
   });
 }
+
