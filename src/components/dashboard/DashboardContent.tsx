@@ -9,14 +9,13 @@ export default function DashboardContent() {
 
   const fetchDashboard = async () => {
     try {
-      const res = await fetch(`https://cors-proxy-wine-pi.vercel.app/api/proxy/logs?timeframe=24h&page=1&pageSize=50`, {
+      const res = await fetch(`/api/proxy/logs?timeframe=24h&page=1&pageSize=50`, {
         headers: {
           Authorization: 'Bearer admin123'
         }
       });
 
       if (!res.ok) throw new Error('Failed to load dashboard data');
-      
       const json = await res.json();
       setData(json);
     } catch (err: any) {
