@@ -5,27 +5,23 @@ import { Redis } from '@upstash/redis';
 const redis = Redis.fromEnv();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-function rewriteM3U8Urls(m3u8Content: string, originalUrl: string, proxyBaseUrl: string): string {
-  const baseUrl = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
+function rewriteM3U8Urls(m3u8: string, originalUrl: string, proxyUrl: string): string {
+  const base = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
+  return m3u8.replace(/^(?!#)(.+)$/gm, line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return trimmed;
 
-  return m3u8Content.replace(
-    /^(?!#)(.+)$/gm,
-    line => {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) return trimmed;
-
-      try {
-        const absoluteUrl = new URL(trimmed, baseUrl).href;
-        return `${proxyBaseUrl}?url=${encodeURIComponent(absoluteUrl)}`;
-      } catch {
-        return trimmed;
-      }
+    try {
+      const absolute = new URL(trimmed, base).href;
+      return `${proxyUrl}?url=${encodeURIComponent(absolute)}`;
+    } catch {
+      return trimmed;
     }
-  );
+  });
 }
 
-function rewriteVTTUrls(vttContent: string, originalUrl: string): string {
-  // Optional: Enhance styling or cue images in future
+function rewriteVTTUrls(vttContent: string): string {
+  // Placeholder for future VTT cue/image rewrites
   return vttContent;
 }
 
@@ -34,7 +30,7 @@ async function logRequest(
   url: string,
   status: number,
   bytes: number,
-  userAgent: string,
+  ua: string,
   referer: string,
   duration: number,
   type: string
@@ -43,20 +39,20 @@ async function logRequest(
     await pool.query(
       `INSERT INTO proxy_logs (ip, url, status, bytes, user_agent, referer, duration, type, timestamp)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-      [ip, url, status, bytes, userAgent, referer, duration, type]
+      [ip, url, status, bytes, ua, referer, duration, type]
     );
   } catch (err) {
-    console.error('DB log error:', err);
+    console.error('[Log Error]', err);
   }
 }
 
-function detectFileType(url: string, contentType: string): string {
-  if (url.endsWith('.m3u8') || contentType.includes('mpegurl')) return 'm3u8';
-  if (url.endsWith('.vtt') || contentType.includes('text/vtt')) return 'vtt';
-  if (url.endsWith('.mpd') || contentType.includes('application/dash+xml')) return 'mpd';
-  if (contentType.includes('image')) return 'image';
-  if (contentType.includes('json')) return 'json';
-  if (contentType.includes('html')) return 'html';
+function detectFileType(url: string, type: string): string {
+  if (url.endsWith('.m3u8') || type.includes('mpegurl')) return 'm3u8';
+  if (url.endsWith('.vtt') || type.includes('text/vtt')) return 'vtt';
+  if (url.endsWith('.mpd') || type.includes('application/dash+xml')) return 'mpd';
+  if (type.includes('image')) return 'image';
+  if (type.includes('json')) return 'json';
+  if (type.includes('html')) return 'html';
   return 'other';
 }
 
@@ -84,13 +80,14 @@ async function handleProxyRequest(request: NextRequest) {
         headers: {
           'Content-Type': url.includes('.m3u8') ? 'application/vnd.apple.mpegurl' : 'text/plain',
           'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'max-age=60, public',
         },
       });
     }
 
     const headers = new Headers();
     request.headers.forEach((val, key) => {
-      if (!['host', 'origin', 'referer'].includes(key)) headers.append(key, val);
+      if (!['host', 'origin', 'referer'].includes(key)) headers.set(key, val);
     });
 
     const fetchOptions: RequestInit = {
@@ -107,15 +104,15 @@ async function handleProxyRequest(request: NextRequest) {
     let size = 0;
 
     if (fileType === 'm3u8') {
-      const txt = await res.text();
+      const text = await res.text();
       const proto = request.headers.get('x-forwarded-proto') || 'https';
       const host = request.headers.get('host') || '';
-      const proxyUrl = `${proto}://${host}/api/proxy`;
-      body = rewriteM3U8Urls(txt, url, proxyUrl);
+      const proxyBase = `${proto}://${host}/api/proxy`;
+      body = rewriteM3U8Urls(text, url, proxyBase);
       await redis.set(url, body, { ex: 600 });
     } else if (fileType === 'vtt') {
-      const txt = await res.text();
-      body = rewriteVTTUrls(txt, url);
+      const text = await res.text();
+      body = rewriteVTTUrls(text);
       await redis.set(url, body, { ex: 600 });
     } else if (fileType === 'json' || contentType.includes('text/') || contentType.includes('application/xml')) {
       body = await res.text();
@@ -127,12 +124,13 @@ async function handleProxyRequest(request: NextRequest) {
 
     const responseHeaders = new Headers();
     res.headers.forEach((val, key) => {
-      if (!key.startsWith('access-control-')) responseHeaders.append(key, val);
+      if (!key.startsWith('access-control-')) responseHeaders.set(key, val);
     });
 
     responseHeaders.set('Access-Control-Allow-Origin', '*');
     responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    responseHeaders.set('Cache-Control', 'public, max-age=60'); // Edge cache hint
 
     const finalRes = new NextResponse(body, {
       status: res.status,
@@ -145,7 +143,7 @@ async function handleProxyRequest(request: NextRequest) {
 
     return finalRes;
   } catch (err) {
-    console.error('Proxy fetch error:', err);
+    console.error('[Proxy Error]', err);
     const msg = 'Fetch failed';
     const duration = Date.now() - start;
     logRequest(ip, url, 500, msg.length, userAgent, referer, duration, 'error');

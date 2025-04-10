@@ -1,14 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Pool } from '@neondatabase/serverless';
+import { pool } from '@/lib/db';
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'admin123';
 
-export async function GET(req: NextRequest) {
+function isValidToken(token: string | null): boolean {
+  return token === ADMIN_TOKEN;
+}
+
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get('Authorization');
+  const token = authHeader?.split(' ')[1];
+  if (!isValidToken(token ?? null)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(request.url);
+  const limit = parseInt(searchParams.get('limit') || '50');
+  const offset = parseInt(searchParams.get('offset') || '0');
+
   try {
-    const result = await pool.query(`SELECT * FROM proxy_logs ORDER BY timestamp DESC LIMIT 100`);
-    return NextResponse.json(result.rows);
+    const result = await pool.query(`
+      SELECT
+        method,
+        url,
+        status,
+        duration,
+        bytes,
+        timestamp
+      FROM proxy_logs
+      ORDER BY timestamp DESC
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+
+    return NextResponse.json({ logs: result.rows });
   } catch (err) {
-    console.error('[Dashboard API Error]', err);
-    return new NextResponse('Failed to fetch logs', { status: 500 });
+    console.error('Log fetch error:', err);
+    return NextResponse.json({ error: 'Failed to fetch logs' }, { status: 500 });
   }
 }

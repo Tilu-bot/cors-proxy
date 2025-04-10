@@ -15,109 +15,37 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const searchParams = request.nextUrl.searchParams;
-  const timeframe = searchParams.get('timeframe') || '24h';
-  const page = parseInt(searchParams.get('page') || '1');
-  const pageSize = parseInt(searchParams.get('pageSize') || '50');
-  const status = searchParams.get('status');
-  const ip = searchParams.get('ip');
-
   try {
-    let whereClause = '';
-    const params: Array<string | number> = [];
+    const result = await pool.query(`
+      SELECT
+        COUNT(*)::int AS "totalRequests",
+        COALESCE(SUM(bytes), 0)::bigint AS "totalBytes",
+        COUNT(CASE WHEN status BETWEEN 200 AND 299 THEN 1 END)::int AS "successfulRequests",
+        COUNT(CASE WHEN status >= 400 THEN 1 END)::int AS "failedRequests",
+        AVG(duration)::float AS "avgResponseTime",
+        COUNT(*) FILTER (WHERE timestamp > NOW() - INTERVAL '1 minute')::int AS "requestsPerMinute"
+      FROM proxy_logs
+    `);
 
-    if (timeframe === '24h') {
-      whereClause += 'timestamp > NOW() - INTERVAL \'24 hours\'';
-    } else if (timeframe === '7d') {
-      whereClause += 'timestamp > NOW() - INTERVAL \'7 days\'';
-    } else {
-      whereClause += 'timestamp > TO_TIMESTAMP(0)';
-    }
+    const stats = result.rows[0] ?? {};
 
-    if (status) {
-      params.push(parseInt(status));
-      whereClause += ` AND status = $${params.length}`;
-    }
+    const totalRequests = stats.totalRequests || 0;
+    const successfulRequests = stats.successfulRequests || 0;
 
-    if (ip) {
-      params.push(`%${ip}%`);
-      whereClause += ` AND ip LIKE $${params.length}`;
-    }
-
-    const offset = (page - 1) * pageSize;
-    params.push(pageSize);
-    params.push(offset);
-
-    const logsQuery = `
-      SELECT timestamp, ip, url, status, bytes, user_agent as "userAgent", referer, duration 
-      FROM proxy_logs 
-      WHERE ${whereClause} 
-      ORDER BY timestamp DESC 
-      LIMIT $${params.length - 1} 
-      OFFSET $${params.length}
-    `;
-
-    const countQuery = `SELECT COUNT(*) as total FROM proxy_logs WHERE ${whereClause}`;
-    const statsQuery = `
-      SELECT 
-        COUNT(*) as "totalRequests",
-        SUM(bytes) as "totalBytes",
-        COUNT(CASE WHEN status >= 200 AND status < 300 THEN 1 END) as "successfulRequests",
-        COUNT(CASE WHEN status >= 400 THEN 1 END) as "failedRequests",
-        AVG(duration) as "avgResponseTime"
-      FROM proxy_logs 
-      WHERE ${whereClause}
-    `;
-
-    const [logsResult, countResult, statsResult] = await Promise.all([
-      pool.query(logsQuery, params),
-      pool.query(countQuery, params.slice(0, params.length - 2)),
-      pool.query(statsQuery, params.slice(0, params.length - 2))
-    ]);
-
-    const logs = logsResult.rows || [];
-    const total = parseInt(countResult.rows[0]?.total || '0');
-    const stats = statsResult.rows[0] || {
-      totalRequests: 0,
-      totalBytes: 0,
-      successfulRequests: 0,
-      failedRequests: 0,
-      avgResponseTime: 0
-    };
-
-    const successRate = stats.totalRequests > 0
-      ? Math.round((stats.successfulRequests / stats.totalRequests) * 100)
+    const successRate = totalRequests > 0
+      ? Math.round((successfulRequests / totalRequests) * 100)
       : 100;
 
-    const response = {
-      stats: {
-        totalRequests: parseInt(stats.totalRequests),
-        totalBytes: parseInt(stats.totalBytes) || 0,
-        bytesFormatted: formatBytes(parseInt(stats.totalBytes) || 0),
-        successfulRequests: parseInt(stats.successfulRequests),
-        failedRequests: parseInt(stats.failedRequests),
-        successRate,
-        avgResponseTime: Math.round(parseFloat(stats.avgResponseTime) || 0)
-      },
-      logs,
-      pagination: {
-        page,
-        pageSize,
-        total
-      }
-    };
+    const errorRate = 100 - successRate;
 
-    return NextResponse.json(response);
-  } catch (error) {
-    console.error('Database error:', error);
-    return NextResponse.json({ error: 'Database error occurred' }, { status: 500 });
+    return NextResponse.json({
+      totalRequestsPerMin: stats.requestsPerMinute || 0,
+      successRate,
+      errorRate,
+      avgResponseTime: Math.round(stats.avgResponseTime || 0),
+    });
+  } catch (err) {
+    console.error('Stats API error:', err);
+    return NextResponse.json({ error: 'Failed to fetch stats' }, { status: 500 });
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }

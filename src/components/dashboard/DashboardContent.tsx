@@ -2,90 +2,106 @@
 
 import { useEffect, useState } from 'react';
 
+interface DashboardStats {
+  totalRequestsPerMin: number;
+  successRate: number;
+  errorRate: number;
+  avgResponseTime: number;
+}
+
 export default function DashboardContent() {
-  const [data, setData] = useState<any>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  const fetchDashboard = async () => {
-    try {
-      const res = await fetch(`/api/proxy/logs?timeframe=24h&page=1&pageSize=50`, {
-        headers: {
-          Authorization: 'Bearer admin123'
-        }
-      });
-
-      if (!res.ok) throw new Error('Failed to load dashboard data');
-      const json = await res.json();
-      setData(json);
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
-    fetchDashboard();
+    async function fetchStats() {
+      try {
+        const res = await fetch('/api/stats', {
+          headers: {
+            Authorization: 'Bearer admin123',
+          },
+        });
+
+        if (!res.ok) {
+          throw new Error('Failed to fetch stats');
+        }
+
+        const data = await res.json();
+        setStats(data);
+      } catch (error) {
+        console.error('Dashboard fetch error:', error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchStats();
   }, []);
 
-  if (loading) return <div>Loading dashboard...</div>;
-  if (error) return <div className="text-red-600">{error}</div>;
-
-  const { stats, logs, pagination } = data;
+  if (loading || !stats) {
+    return <div className="text-center text-gray-500">Fetching stats...</div>;
+  }
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <StatCard label="Total Requests" value={stats.totalRequests} />
-        <StatCard label="Success Rate" value={`${stats.successRate}%`} />
-        <StatCard label="Total Data" value={stats.bytesFormatted} />
-        <StatCard label="Avg Response Time" value={`${stats.avgResponseTime} ms`} />
-        <StatCard label="Success" value={stats.successfulRequests} />
-        <StatCard label="Failed" value={stats.failedRequests} />
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="min-w-full border text-sm">
-          <thead className="bg-gray-200">
-            <tr>
-              <th className="border px-2 py-1">Time</th>
-              <th className="border px-2 py-1">IP</th>
-              <th className="border px-2 py-1">Status</th>
-              <th className="border px-2 py-1">URL</th>
-              <th className="border px-2 py-1">Bytes</th>
-              <th className="border px-2 py-1">Duration</th>
-            </tr>
-          </thead>
-          <tbody>
-            {logs.map((log: any, index: number) => (
-              <tr key={index} className="hover:bg-gray-100">
-                <td className="border px-2 py-1">{new Date(log.timestamp).toLocaleString()}</td>
-                <td className="border px-2 py-1">{log.ip}</td>
-                <td className="border px-2 py-1">{log.status}</td>
-                <td className="border px-2 py-1 truncate max-w-xs">{log.url}</td>
-                <td className="border px-2 py-1">{log.bytes}</td>
-                <td className="border px-2 py-1">{log.duration} ms</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div>
-        <p className="text-sm text-gray-600">
-          Showing page {pagination.page} of {Math.ceil(pagination.total / pagination.pageSize)}
-        </p>
-      </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+      <StatCard title="Requests/Min" value={stats.totalRequestsPerMin} />
+      <StatCard title="Success Rate" value={`${stats.successRate}%`} circle progress={stats.successRate} color="green" />
+      <StatCard title="Error Rate" value={`${stats.errorRate}%`} circle progress={stats.errorRate} color="red" />
+      <StatCard title="Avg Response Time" value={`${stats.avgResponseTime} ms`} />
     </div>
   );
 }
 
-function StatCard({ label, value }: { label: string, value: string | number }) {
+function StatCard({
+  title,
+  value,
+  circle = false,
+  progress = 0,
+  color = 'blue',
+}: {
+  title: string;
+  value: string | number;
+  circle?: boolean;
+  progress?: number;
+  color?: 'blue' | 'green' | 'red';
+}) {
   return (
-    <div className="p-4 bg-white rounded-lg shadow text-center">
-      <div className="text-lg font-semibold">{label}</div>
-      <div className="text-xl font-bold">{value}</div>
+    <div className="bg-white shadow rounded-lg p-6 text-center">
+      <h3 className="text-md font-semibold mb-2">{title}</h3>
+      {circle ? (
+        <div className="flex justify-center items-center h-24 relative">
+          <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
+            <circle
+              cx="50"
+              cy="50"
+              r="45"
+              stroke="#e5e7eb"
+              strokeWidth="10"
+              fill="none"
+            />
+            <circle
+              cx="50"
+              cy="50"
+              r="45"
+              stroke={
+                color === 'green'
+                  ? '#10b981'
+                  : color === 'red'
+                  ? '#ef4444'
+                  : '#3b82f6'
+              }
+              strokeWidth="10"
+              strokeDasharray="283"
+              strokeDashoffset={283 - (progress / 100) * 283}
+              fill="none"
+              strokeLinecap="round"
+            />
+          </svg>
+          <div className="absolute text-xl font-bold">{value}</div>
+        </div>
+      ) : (
+        <p className="text-2xl font-bold">{value}</p>
+      )}
     </div>
   );
 }

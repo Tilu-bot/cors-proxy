@@ -1,102 +1,110 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Redis } from '@upstash/redis';
 import { Pool } from '@neondatabase/serverless';
+import { Redis } from '@upstash/redis';
 
-const redis = Redis.fromEnv();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const redis = Redis.fromEnv();
 
-async function logRequest(
+function getContentType(url: string): string {
+  const ext = url.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'svg':
+      return 'image/svg+xml';
+    case 'avif':
+      return 'image/avif';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+async function logImageRequest(
   ip: string,
   url: string,
   status: number,
-  bytes: number,
+  size: number,
   userAgent: string,
   referer: string,
-  duration: number,
-  type: string = 'image'
+  duration: number
 ) {
   try {
     await pool.query(
-      `INSERT INTO proxy_logs (ip, url, status, bytes, user_agent, referer, duration, type, timestamp)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-      [ip, url, status, bytes, userAgent, referer, duration, type]
+      `INSERT INTO image_logs (ip, url, status, bytes, user_agent, referer, duration, timestamp)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+      [ip, url, status, size, userAgent, referer, duration]
     );
   } catch (err) {
-    console.error('[Image Log Error]', err);
+    console.error('[DB Image Log Error]', err);
   }
 }
 
-export async function GET(request: NextRequest) {
-  const urlParam = request.nextUrl.searchParams.get('url');
-  const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
-  const userAgent = request.headers.get('user-agent') || '';
-  const referer = request.headers.get('referer') || '';
+export async function GET(req: NextRequest) {
+  const url = req.nextUrl.searchParams.get('url');
+  const ip = req.headers.get('x-forwarded-for') || '0.0.0.0';
+  const referer = req.headers.get('referer') || '';
+  const userAgent = req.headers.get('user-agent') || '';
   const start = Date.now();
 
-  if (!urlParam) {
-    return new NextResponse('Missing image URL', { status: 400 });
+  if (!url || !/^https?:\/\//.test(url)) {
+    return new NextResponse('Invalid or missing url parameter', { status: 400 });
   }
 
-  const targetUrl = decodeURIComponent(urlParam);
-
   try {
-    const cached = await redis.get(targetUrl);
+    const cached = await redis.get<string>(url);
     if (cached) {
-      const buf = Buffer.from(cached as string, 'base64');
-      return new NextResponse(buf, {
+      const buffer = Buffer.from(cached, 'base64');
+      const contentType = getContentType(url);
+
+      return new NextResponse(buffer, {
         status: 200,
         headers: {
-          'Content-Type': 'image/jpeg',
-          'Cache-Control': 'public, max-age=86400',
-          'Access-Control-Allow-Origin': '*'
-        }
+          'Content-Type': contentType,
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=600, stale-while-revalidate=60', // ✅ Edge cache
+        },
       });
     }
 
-    const res = await fetch(targetUrl);
-    if (!res.ok) {
-      return new NextResponse(`Failed to fetch image`, { status: res.status });
-    }
+    const res = await fetch(url);
+    const contentType = res.headers.get('Content-Type') || getContentType(url);
+    const buffer = await res.arrayBuffer();
+    const size = buffer.byteLength;
 
-    const contentType = res.headers.get('Content-Type') || 'image/jpeg';
-    const arrayBuffer = await res.arrayBuffer();
-    const duration = Date.now() - start;
-    const byteLength = arrayBuffer.byteLength;
+    await redis.set(url, Buffer.from(buffer).toString('base64'), { ex: 1800 }); // 30 mins
 
-    // Cache in Redis (base64 to safely store binary)
-    await redis.set(targetUrl, Buffer.from(arrayBuffer).toString('base64'), { ex: 86400 });
-
-    // Log to DB
-    logRequest(ip, targetUrl, res.status, byteLength, userAgent, referer, duration);
-
-    return new NextResponse(arrayBuffer, {
-      status: 200,
+    const response = new NextResponse(buffer, {
+      status: res.status,
       headers: {
         'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400',
         'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=600, stale-while-revalidate=60', // ✅ Edge cache
       },
     });
+
+    const duration = Date.now() - start;
+    logImageRequest(ip, url, res.status, size, userAgent, referer, duration);
+
+    return response;
   } catch (err) {
     console.error('[Image Proxy Error]', err);
-    return new NextResponse('Error fetching image', {
+    const msg = 'Image fetch failed';
+    const duration = Date.now() - start;
+    logImageRequest(ip, url, 500, msg.length, userAgent, referer, duration);
+
+    return new NextResponse(msg, {
       status: 500,
       headers: {
-        'Access-Control-Allow-Origin': '*',
         'Content-Type': 'text/plain',
+        'Access-Control-Allow-Origin': '*',
       },
     });
   }
-}
-
-export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
 }
