@@ -14,6 +14,7 @@ export default function DashboardContent() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Function to fetch stats from the API
     async function fetchStats() {
       try {
         const res = await fetch('/api/proxy-stats', {
@@ -33,7 +34,14 @@ export default function DashboardContent() {
       }
     }
 
+    // Initial fetch on component mount
     fetchStats();
+
+    // Polling every 30 seconds to update stats
+    const intervalId = setInterval(fetchStats, 30000); // 30 seconds
+
+    // Cleanup function to clear the interval when the component unmounts
+    return () => clearInterval(intervalId);
   }, []);
 
   if (loading || !stats) {

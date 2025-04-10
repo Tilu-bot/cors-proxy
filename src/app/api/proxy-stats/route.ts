@@ -8,6 +8,7 @@ function isValidToken(token: string | null): boolean {
 }
 
 export async function GET(request: NextRequest) {
+  // Extract the Authorization token
   const authHeader = request.headers.get('Authorization');
   const token = authHeader?.split(' ')[1];
 
@@ -23,7 +24,8 @@ export async function GET(request: NextRequest) {
         COUNT(CASE WHEN status BETWEEN 200 AND 299 THEN 1 END)::int AS "successfulRequests",
         COUNT(CASE WHEN status >= 400 THEN 1 END)::int AS "failedRequests",
         AVG(duration)::float AS "avgResponseTime",
-        COUNT(*) FILTER (WHERE timestamp > NOW() - INTERVAL '1 minute')::int AS "requestsPerMinute"
+        COUNT(*) FILTER (WHERE timestamp > NOW() - INTERVAL '1 minute')::int AS "requestsPerMinute",
+        COUNT(DISTINCT client_ip) AS "uniqueUsers"
       FROM proxy_logs
     `);
 
@@ -43,6 +45,7 @@ export async function GET(request: NextRequest) {
       successRate,
       errorRate,
       avgResponseTime: Math.round(stats.avgResponseTime || 0),
+      uniqueUsers: stats.uniqueUsers || 0, // Return the unique users count (based on IP)
     });
   } catch (err) {
     console.error('Stats API error:', err);
