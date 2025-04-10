@@ -22,14 +22,12 @@ export default function DashboardContent() {
           },
         });
 
-        if (!res.ok) {
-          throw new Error('Failed to fetch stats');
-        }
+        if (!res.ok) throw new Error('Failed to fetch stats');
 
         const data = await res.json();
         setStats(data);
-      } catch (error) {
-        console.error('Dashboard fetch error:', error);
+      } catch (err) {
+        console.error('Dashboard fetch error:', err);
       } finally {
         setLoading(false);
       }
@@ -45,8 +43,20 @@ export default function DashboardContent() {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
       <StatCard title="Requests/Min" value={stats.totalRequestsPerMin} />
-      <StatCard title="Success Rate" value={`${stats.successRate}%`} circle progress={stats.successRate} color="green" />
-      <StatCard title="Error Rate" value={`${stats.errorRate}%`} circle progress={stats.errorRate} color="red" />
+      <StatCard
+        title="Success Rate"
+        value={`${stats.successRate}%`}
+        circle
+        progress={stats.successRate}
+        color="green"
+      />
+      <StatCard
+        title="Error Rate"
+        value={`${stats.errorRate}%`}
+        circle
+        progress={stats.errorRate}
+        color="red"
+      />
       <StatCard title="Avg Response Time" value={`${stats.avgResponseTime} ms`} />
     </div>
   );
@@ -71,14 +81,7 @@ function StatCard({
       {circle ? (
         <div className="flex justify-center items-center h-24 relative">
           <svg className="w-20 h-20 transform -rotate-90" viewBox="0 0 100 100">
-            <circle
-              cx="50"
-              cy="50"
-              r="45"
-              stroke="#e5e7eb"
-              strokeWidth="10"
-              fill="none"
-            />
+            <circle cx="50" cy="50" r="45" stroke="#e5e7eb" strokeWidth="10" fill="none" />
             <circle
               cx="50"
               cy="50"
