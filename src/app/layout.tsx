@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -25,7 +25,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} font-sans`}
+        className={`${inter.variable} ${jetbrainsMono.variable} font-sans bg-gray-100 text-gray-900`} // Added some Tailwind styling here
       >
         {children}
       </body>

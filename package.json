@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "build:css": "tailwindcss build src/styles/globals.css -o dist/styles.css"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",
@@ -20,15 +21,13 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4",
+    "@tailwindcss/postcss": "^4.1.3",
     "@types/node": "^20.8.7",
     "@types/pg": "^8.10.5",
     "@types/react": "^18.2.31",
     "@types/react-dom": "^18.2.7",
-    "autoprefixer": "^10.4.21",
     "eslint": "^9",
     "eslint-config-next": "15.2.4",
-    "postcss": "^8.5.3",
     "tailwindcss": "^4.1.3",
     "typescript": "^5.2.2"
   }
