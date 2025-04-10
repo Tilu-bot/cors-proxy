@@ -2,14 +2,15 @@ import { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
+// Initialize custom fonts
 const inter = Inter({
   subsets: ["latin"],
-  variable: "--font-sans",
+  variable: "--font-sans", // CSS variable for Inter font
 });
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  variable: "--font-mono",
+  variable: "--font-mono", // CSS variable for JetBrains Mono font
 });
 
 export const metadata: Metadata = {
@@ -25,7 +26,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} font-sans bg-gray-100 text-gray-900`} // Added some Tailwind styling here
+        className={`${inter.variable} ${jetbrainsMono.variable} bg-gray-100 text-gray-900`} // Custom fonts applied
       >
         {children}
       </body>

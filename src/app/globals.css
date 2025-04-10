@@ -1,30 +1,109 @@
-@import "tailwindcss";
-
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Global styles */
+body {
+  background: #ffffff;
+  color: #171717;
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  text-align: center;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Dashboard grid layout */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(1, 1fr);
+  gap: 24px;
+  width: 100%;
+  padding: 20px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #a8cc3c;
-    --foreground: #2b55e0;
+@media (min-width: 640px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@media (min-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
+/* Stat card styling */
+.stat-card {
+  background-color: white;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  padding: 24px;
+  text-align: center;
+  transition: transform 0.3s ease;
+}
+
+.stat-card:hover {
+  transform: scale(1.05);
+}
+
+.stat-title {
+  font-size: 1rem;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.stat-value {
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.circle-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 6rem;
+  position: relative;
+}
+
+.circle-svg {
+  width: 5rem;
+  height: 5rem;
+  transform: rotate(-90deg);
+}
+
+.circle-background {
+  stroke: #e5e7eb;
+  stroke-width: 10;
+  fill: none;
+}
+
+.circle-progress {
+  stroke-width: 10;
+  fill: none;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.5s ease;
+}
+
+.circle-progress.green {
+  stroke: #10b981;
+}
+
+.circle-progress.red {
+  stroke: #ef4444;
+}
+
+.circle-progress.blue {
+  stroke: #3b82f6;
+}
+
+.circle-value {
+  position: absolute;
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+/* Glow effect */
 .glow {
   animation: glow 2s ease-in-out infinite alternate;
 }
@@ -38,4 +117,66 @@ body {
   }
 }
 
+/* Loading text */
+.loading-text {
+  text-align: center;
+  color: #a0aec0;
+  font-size: 1.2rem;
+  margin-top: 20px;
+}
 
+/* Button styling */
+button {
+  background-color: #3b82f6;
+  color: white;
+  font-size: 1rem;
+  padding: 12px 24px;
+  border-radius: 25px;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.3s ease, background-color 0.3s ease;
+}
+
+button:hover {
+  background-color: #2563eb;
+  transform: scale(1.1);
+}
+
+button:focus {
+  outline: none;
+}
+
+/* Typography */
+h1 {
+  font-size: 3rem;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+p {
+  font-size: 1.2rem;
+  color: #4a5568;
+}
+
+/* Responsive design for mobile */
+@media (max-width: 640px) {
+  h1 {
+    font-size: 2.5rem;
+  }
+
+  .stat-value {
+    font-size: 1.2rem;
+  }
+
+  .circle-value {
+    font-size: 1.2rem;
+  }
+}
+
+/* Code block styling */
+code {
+  background-color: #2d3748;
+  color: #edf2f7;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
