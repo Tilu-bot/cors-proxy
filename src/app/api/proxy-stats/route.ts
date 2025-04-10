@@ -1,3 +1,5 @@
+'use server';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { pool } from '@/lib/db';
 
@@ -24,8 +26,7 @@ export async function GET(request: NextRequest) {
         COUNT(CASE WHEN status BETWEEN 200 AND 299 THEN 1 END)::int AS "successfulRequests",
         COUNT(CASE WHEN status >= 400 THEN 1 END)::int AS "failedRequests",
         AVG(duration)::float AS "avgResponseTime",
-        COUNT(*) FILTER (WHERE timestamp > NOW() - INTERVAL '1 minute')::int AS "requestsPerMinute",
-        COUNT(DISTINCT client_ip) AS "uniqueUsers"
+        COUNT(*) FILTER (WHERE timestamp > NOW() - INTERVAL '1 minute')::int AS "requestsPerMinute"
       FROM proxy_logs
     `);
 
@@ -45,7 +46,6 @@ export async function GET(request: NextRequest) {
       successRate,
       errorRate,
       avgResponseTime: Math.round(stats.avgResponseTime || 0),
-      uniqueUsers: stats.uniqueUsers || 0, // Return the unique users count (based on IP)
     });
   } catch (err) {
     console.error('Stats API error:', err);
