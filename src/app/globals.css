@@ -14,8 +14,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #a8cc3c;
+    --foreground: #2b55e0;
   }
 }
 
@@ -25,12 +25,17 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Optional: Custom dashboard glow style */
 .glow {
-  @apply text-galaxical-glow animate-pulseGlow;
+  animation: glow 2s ease-in-out infinite alternate;
 }
+
+@keyframes glow {
+  from {
+    filter: drop-shadow(0 0 5px #7f5af0);
+  }
+  to {
+    filter: drop-shadow(0 0 15px #00ffe7);
+  }
+}
+
 

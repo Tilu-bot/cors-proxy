@@ -6,8 +6,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
-    "build:css": "tailwindcss build src/styles/globals.css -o dist/styles.css"
+    "lint": "next lint"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",
@@ -32,3 +31,5 @@
     "typescript": "^5.2.2"
   }
 }
+
+
