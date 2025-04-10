@@ -16,7 +16,7 @@ export default function DashboardContent() {
   useEffect(() => {
     async function fetchStats() {
       try {
-        const res = await fetch('/api/stats', {
+        const res = await fetch('/api/proxy-stats', {
           headers: {
             Authorization: 'Bearer admin123',
           },
