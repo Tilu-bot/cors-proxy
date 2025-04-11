@@ -5,7 +5,7 @@ import crypto from 'crypto';
 
 const redis = Redis.fromEnv();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const REDIS_TTL = 600; // 10 minutes for Redis stats
+const REDIS_TTL = 600; // 10 minutes
 
 function detectFileType(url: string, contentType: string): string {
   if (url.endsWith('.m3u8') || contentType.includes('mpegurl')) return 'm3u8';
@@ -60,12 +60,10 @@ async function updateRealtimeMetrics({
   type,
   status,
   edgeCached,
-  duration,
 }: {
   type: string;
   status: number;
   edgeCached: boolean;
-  duration: number;
 }) {
   const metrics: [string, boolean][] = [
     ['rpm:total', true],
@@ -82,14 +80,6 @@ async function updateRealtimeMetrics({
       ops.push(redis.incr(key));
       ops.push(redis.expire(key, REDIS_TTL));
     }
-  }
-
-  // Duration average tracking
-  if (status < 500) {
-    ops.push(redis.incrby('rpm:totalDuration', duration));
-    ops.push(redis.incr('rpm:durationCount'));
-    ops.push(redis.expire('rpm:totalDuration', REDIS_TTL));
-    ops.push(redis.expire('rpm:durationCount', REDIS_TTL));
   }
 
   await Promise.all(ops);
@@ -110,9 +100,9 @@ async function handleProxyRequest(request: NextRequest) {
     const fetchRes = await fetch(url, {
       method: request.method,
       headers: Object.fromEntries(
-        [...request.headers.entries()].filter(
-          ([k]) => !['host', 'origin', 'referer', 'connection', 'content-length'].includes(k.toLowerCase())
-        )
+        [...request.headers.entries()].filter(([k]) =>
+          !['host', 'origin', 'referer', 'connection', 'content-length'].includes(k.toLowerCase())
+        ),
       ),
     });
 
@@ -151,7 +141,6 @@ async function handleProxyRequest(request: NextRequest) {
         type: fileType,
         status: fetchRes.status,
         edgeCached,
-        duration,
       }),
     ]);
 
@@ -180,7 +169,6 @@ async function handleProxyRequest(request: NextRequest) {
         type: 'error',
         status: 500,
         edgeCached: false,
-        duration,
       }),
     ]);
 
@@ -194,7 +182,7 @@ async function handleProxyRequest(request: NextRequest) {
   }
 }
 
-// Export all HTTP methods
+// Export all methods
 export async function GET(req: NextRequest) {
   return handleProxyRequest(req);
 }
