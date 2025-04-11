@@ -1,30 +1,30 @@
 import { Pool } from 'pg';
 
+// Neon PostgreSQL connection pool
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'your-fallback-url',
+  connectionString: process.env.DATABASE_URL || '',
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
 });
 
+// Error handling
 pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
+  console.error('Unexpected PostgreSQL client error:', err);
   if (process.env.NODE_ENV === 'development') {
-    console.error('Database connection error in development mode, exiting...');
-    process.exit(-1);
+    process.exit(1);
   }
 });
 
+// Utility function to test connection (optional)
 export async function testConnection() {
-  let client;
   try {
-    client = await pool.connect();
+    const client = await pool.connect();
     const res = await client.query('SELECT NOW()');
-    console.log('✅ PostgreSQL connected:', res.rows[0]);
-  } catch (err) {
-    console.error('❌ PostgreSQL connection test failed:', err);
-  } finally {
-    client?.release();
+    console.log('✅ DB Connected at:', res.rows[0].now);
+    client.release();
+  } catch (error) {
+    console.error('❌ Database connection error:', error);
   }
 }
 

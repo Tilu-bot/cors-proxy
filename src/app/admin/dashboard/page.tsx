@@ -5,9 +5,11 @@ import DashboardContent from '@/components/dashboard/DashboardContent';
 
 export default function DashboardPage() {
   return (
-    <div className="container mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-6 text-center">Proxy Dashboard</h1>
-      <Suspense fallback={<div className="text-center text-gray-500">Loading dashboard data...</div>}>
+    <div className="min-h-screen bg-black text-white px-4 py-8">
+      <h1 className="text-4xl font-extrabold mb-8 text-center text-purple-400 drop-shadow-md">
+        Galaxy Proxy Dashboard
+      </h1>
+      <Suspense fallback={<div className="text-center text-gray-400 animate-pulse">Loading dashboard data...</div>}>
         <DashboardContent />
       </Suspense>
     </div>

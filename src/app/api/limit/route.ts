@@ -1,52 +1,126 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from 'redis';
+import { Pool } from '@neondatabase/serverless';
+import { Redis } from '@upstash/redis';
+import crypto from 'crypto';
 
-const redis = createClient({ url: process.env.REDIS_URL });
-redis.connect().catch(console.error);
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const redis = Redis.fromEnv();
 
-const RATE_LIMIT = parseInt(process.env.RATE_LIMIT || '100');
-const RATE_WINDOW = parseInt(process.env.RATE_WINDOW_MS || '60000');
+function getContentType(url: string): string {
+  const ext = url.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    case 'svg':
+      return 'image/svg+xml';
+    case 'avif':
+      return 'image/avif';
+    default:
+      return 'application/octet-stream';
+  }
+}
 
-export async function GET(request: NextRequest) {
-  const ipRaw = request.headers.get('x-forwarded-for') || '';
-  const ip = ipRaw.split(',')[0].trim();
+async function logImageRequest(details: {
+  id: string;
+  url: string;
+  status: number;
+  size: number;
+  duration: number;
+}) {
+  try {
+    await pool.query(
+      `INSERT INTO image_logs (uuid, url, status, bytes, duration, timestamp)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [details.id, details.url, details.status, details.size, details.duration]
+    );
+  } catch (err) {
+    console.error('[DB Image Log Error]', err);
+  }
+}
 
-  if (!ip) {
-    return new NextResponse('IP address not found', { status: 400 });
+export async function GET(req: NextRequest) {
+  const url = req.nextUrl.searchParams.get('url');
+  const start = Date.now();
+  const id = crypto.randomUUID();
+
+  if (!url || !/^https?:\/\//.test(url)) {
+    return new NextResponse('Invalid or missing url parameter', { status: 400 });
   }
 
-  const key = `rate-limit:${ip}`;
-
   try {
-    const tx = redis.multi();
-    tx.incr(key);
-    tx.pTTL(key);
-    const [count, ttl] = await tx.exec() as [number, number];
+    const cached = await redis.get<string>(url);
+    if (cached) {
+      const buffer = Buffer.from(cached, 'base64');
+      const duration = Date.now() - start;
+      await logImageRequest({
+        id,
+        url,
+        status: 200,
+        size: buffer.byteLength,
+        duration
+      });
 
-    if (count === 1) {
-      await redis.pExpire(key, RATE_WINDOW);
-    }
-
-    if (count > RATE_LIMIT) {
-      return new NextResponse('Too Many Requests', {
-        status: 429,
+      return new NextResponse(buffer, {
+        status: 200,
         headers: {
-          'Retry-After': `${Math.ceil((ttl || RATE_WINDOW) / 1000)}`
+          'Content-Type': getContentType(url),
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=600, stale-while-revalidate=60',
         },
       });
     }
 
-    return new NextResponse(`✅ Allowed: ${count}/${RATE_LIMIT}`, {
-      status: 200,
-      headers: {
-        'X-RateLimit-Limit': RATE_LIMIT.toString(),
-        'X-RateLimit-Remaining': (RATE_LIMIT - count).toString(),
-        'X-RateLimit-Reset': `${Date.now() + (ttl || RATE_WINDOW)}`
-      }
+    const res = await fetch(url);
+    const buffer = await res.arrayBuffer();
+    const contentType = res.headers.get('Content-Type') || getContentType(url);
+    const size = buffer.byteLength;
+
+    await redis.set(url, Buffer.from(buffer).toString('base64'), { ex: 1800 });
+
+    const duration = Date.now() - start;
+
+    await logImageRequest({
+      id,
+      url,
+      status: res.status,
+      size,
+      duration,
     });
 
-  } catch (error) {
-    console.error('Redis Rate Limiting Error:', error);
-    return new NextResponse('Internal Server Error', { status: 500 });
+    return new NextResponse(buffer, {
+      status: res.status,
+      headers: {
+        'Content-Type': contentType,
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=600, stale-while-revalidate=60',
+      },
+    });
+  } catch (err) {
+    console.error('[Image Proxy Error]', err);
+    const msg = 'Image fetch failed';
+    const duration = Date.now() - start;
+
+    await logImageRequest({
+      id,
+      url,
+      status: 500,
+      size: msg.length,
+      duration,
+    });
+
+    return new NextResponse(msg, {
+      status: 500,
+      headers: {
+        'Content-Type': 'text/plain',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
   }
 }
