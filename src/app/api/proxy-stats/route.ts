@@ -78,8 +78,7 @@ async function updateRealtimeMetrics({
 
   for (const [key, shouldRun] of metrics) {
     if (shouldRun) {
-      ops.push(redis.incr(key));
-      ops.push(redis.expire(key, REDIS_TTL));
+      ops.push(redis.incr(key), redis.expire(key, REDIS_TTL));
     }
   }
 
@@ -108,7 +107,7 @@ async function handleProxyRequest(request: NextRequest) {
     const fetchRes = await fetch(url, {
       method: request.method,
       headers: Object.fromEntries(
-        [...request.headers.entries()].filter(([k]) => !['host', 'origin', 'referer'].includes(k))
+        [...request.headers.entries()].filter(([k]) => !['host', 'origin', 'referer', 'connection', 'content-length'].includes(k.toLowerCase()))
       ),
     });
 
@@ -123,7 +122,7 @@ async function handleProxyRequest(request: NextRequest) {
       body = await fetchRes.arrayBuffer();
     }
 
-    const bytes = typeof body === 'string' ? body.length : body.byteLength;
+    const bytes = typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength;
     const duration = Date.now() - start;
 
     const headers = new Headers(fetchRes.headers);
