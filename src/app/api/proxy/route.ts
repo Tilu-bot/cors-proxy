@@ -74,26 +74,36 @@ async function updateRealtimeMetrics({
   type,
   status,
   edgeCached,
+  duration,
 }: {
   type: string;
   status: number;
   edgeCached: boolean;
+  duration: number;
 }) {
-  const metrics: [string, boolean][] = [
-    ['rpm:total', true],
-    ['rpm:outgoing', type === 'm3u8' || type === 'ts'],
-    ['rpm:edgeHit', edgeCached],
-    ['rpm:success', status >= 200 && status < 300],
-    ['rpm:error', status >= 400],
-  ];
-
+  const minuteKey = Math.floor(Date.now() / 60000); // Current minute
   const ops: Promise<any>[] = [];
+
+  const metrics: [string, boolean][] = [
+    [`rpm:total:${minuteKey}`, true],
+    [`rpm:outgoing:${minuteKey}`, type === 'm3u8' || type === 'ts'],
+    [`rpm:edgeHit:${minuteKey}`, edgeCached],
+    [`rpm:success:${minuteKey}`, status >= 200 && status < 300],
+    [`rpm:error:${minuteKey}`, status >= 400],
+  ];
 
   for (const [key, shouldRun] of metrics) {
     if (shouldRun) {
       ops.push(redis.incr(key));
       ops.push(redis.expire(key, REDIS_TTL));
     }
+  }
+
+  if (status < 500) {
+    ops.push(redis.incrby(`rpm:durationSum:${minuteKey}`, duration));
+    ops.push(redis.incr(`rpm:durationCount:${minuteKey}`));
+    ops.push(redis.expire(`rpm:durationSum:${minuteKey}`, REDIS_TTL));
+    ops.push(redis.expire(`rpm:durationCount:${minuteKey}`, REDIS_TTL));
   }
 
   await Promise.all(ops);
@@ -162,6 +172,7 @@ async function handleProxyRequest(request: NextRequest) {
         type: fileType,
         status: fetchRes.status,
         edgeCached,
+        duration,
       }),
     ]);
 
@@ -190,6 +201,7 @@ async function handleProxyRequest(request: NextRequest) {
         type: 'error',
         status: 500,
         edgeCached: false,
+        duration,
       }),
     ]);
 
