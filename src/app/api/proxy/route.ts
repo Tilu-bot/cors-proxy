@@ -6,7 +6,7 @@ import crypto from 'crypto';
 const redis = Redis.fromEnv();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const REDIS_TTL = 600; // 10 minutes
+const REDIS_TTL = 600; // 10 minutes for Redis stats
 
 function rewriteM3U8Urls(m3u8: string, originalUrl: string, proxyUrl: string): string {
   const base = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
@@ -90,7 +90,7 @@ async function updateRealtimeMetrics({
     ['rpm:error', status >= 400],
   ];
 
-  const tasks: Promise<unknown>[] = [];
+  const tasks: Promise<any>[] = [];
 
   for (const [key, condition] of metrics) {
     if (condition) {
@@ -99,11 +99,13 @@ async function updateRealtimeMetrics({
     }
   }
 
-  // Track response time stats in Redis for 1-min real-time avg
-  tasks.push(redis.incrby('rpm:totalDuration', duration));
-  tasks.push(redis.incr('rpm:durationCount'));
-  tasks.push(redis.expire('rpm:totalDuration', REDIS_TTL));
-  tasks.push(redis.expire('rpm:durationCount', REDIS_TTL));
+  // Track average duration per minute
+  if (status < 500) {
+    tasks.push(redis.incrby('rpm:totalDuration', duration));
+    tasks.push(redis.incr('rpm:durationCount'));
+    tasks.push(redis.expire('rpm:totalDuration', REDIS_TTL));
+    tasks.push(redis.expire('rpm:durationCount', REDIS_TTL));
+  }
 
   await Promise.all(tasks);
 }
@@ -148,8 +150,8 @@ async function handleProxyRequest(request: NextRequest) {
 
     const bytes = typeof body === 'string' ? body.length : body.byteLength;
     const duration = Date.now() - start;
-    const headers = new Headers(fetchRes.headers);
 
+    const headers = new Headers(fetchRes.headers);
     headers.set('Access-Control-Allow-Origin', '*');
     headers.set('Cache-Control', 'public, max-age=60');
 
@@ -215,7 +217,7 @@ async function handleProxyRequest(request: NextRequest) {
   }
 }
 
-// Support all HTTP methods
+// Support all methods
 export async function GET(req: NextRequest) {
   return handleProxyRequest(req);
 }
