@@ -1,6 +1,5 @@
-/* Global styles */
+/* ==== Global Styles ==== */
 body {
-  background: #0f0c29; /* galaxical deep space */
   background: linear-gradient(to right, #302b63, #24243e);
   color: #ffffff;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -10,13 +9,15 @@ body {
   text-align: center;
 }
 
-/* Dashboard layout */
+/* ==== Dashboard Grid Layout ==== */
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(1, 1fr);
   gap: 24px;
   padding: 24px;
   width: 100%;
+  max-width: 1200px;
+  margin: auto;
 }
 
 @media (min-width: 640px) {
@@ -31,7 +32,7 @@ body {
   }
 }
 
-/* Stat card styling */
+/* ==== Stat Card Styling ==== */
 .stat-card {
   background: #1f1b3a;
   box-shadow: 0 0 15px rgba(138, 43, 226, 0.3);
@@ -58,7 +59,7 @@ body {
   color: #ffffff;
 }
 
-/* Circular progress ring */
+/* ==== Circular Chart ==== */
 .circle-container {
   display: flex;
   justify-content: center;
@@ -105,14 +106,14 @@ body {
   color: #ffffff;
 }
 
-/* Loading state */
+/* ==== Loading Text ==== */
 .loading-text {
   color: #9ca3af;
   font-size: 1.2rem;
   margin-top: 20px;
 }
 
-/* Popup overlay for detail view */
+/* ==== Popup Overlay ==== */
 .popup-overlay {
   position: fixed;
   inset: 0;
@@ -122,14 +123,16 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  padding: 16px;
 }
 
+/* ==== Popup Content ==== */
 .popup {
   background: #1a1a2e;
-  padding: 20px 30px;
+  padding: 24px;
   border-radius: 14px;
-  max-height: 80vh;
-  width: 90%;
+  max-height: 85vh;
+  width: 100%;
   max-width: 800px;
   overflow-y: auto;
   box-shadow: 0 0 25px rgba(0, 255, 255, 0.3);
@@ -147,7 +150,7 @@ body {
 
 .log-entry {
   background: #1f1f3a;
-  padding: 10px 15px;
+  padding: 12px 16px;
   margin-bottom: 12px;
   border-left: 4px solid #00ffe7;
   border-radius: 6px;
@@ -161,6 +164,7 @@ body {
   border-radius: 4px;
 }
 
+/* ==== Sub Detail Row ==== */
 .sub-details {
   display: flex;
   flex-wrap: wrap;
@@ -170,7 +174,7 @@ body {
   color: #ccc;
 }
 
-/* Buttons */
+/* ==== Button Styling ==== */
 button {
   background: #00ffe7;
   border: none;
@@ -188,7 +192,7 @@ button:hover {
   transform: scale(1.05);
 }
 
-/* Typography */
+/* ==== Typography ==== */
 h1 {
   font-size: 2.5rem;
   color: #ffffff;
@@ -212,7 +216,7 @@ code {
   border-radius: 4px;
 }
 
-/* Glow animation */
+/* ==== Glow Animation ==== */
 .glow {
   animation: glow 2s ease-in-out infinite alternate;
 }
