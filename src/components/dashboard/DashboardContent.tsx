@@ -23,6 +23,7 @@ interface DashboardStats {
   outgoingPerMin: number;
   edgeHitsPerMin: number;
   avgResponseTime: number;
+  avgSpeedPerMin: number; // ✅ NEW
   maxResponseTime: number;
   edgeActiveCount: number;
   incomingCount: number;
@@ -47,7 +48,7 @@ export default function DashboardContent() {
       try {
         const res = await fetch('/api/proxy-stats', {
           headers: {
-            Authorization: 'Bearer admin123', // ✅ make sure this matches your backend env token
+            Authorization: 'Bearer admin123',
           },
         });
         if (!res.ok) throw new Error('Failed to fetch stats');
@@ -61,7 +62,7 @@ export default function DashboardContent() {
     }
 
     fetchStats();
-    const interval = setInterval(fetchStats, 10000); // Refresh every 10s
+    const interval = setInterval(fetchStats, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -74,7 +75,7 @@ export default function DashboardContent() {
       outgoing: stats.outgoingLogs,
       cache: stats.cacheLogs,
       avg: stats.slowestLogs,
-      edge: stats.cacheLogs, // reuse for detailed cache stats
+      edge: stats.cacheLogs,
     };
     setPopupTitle(title);
     setPopupData(map[type] || []);
@@ -92,6 +93,7 @@ export default function DashboardContent() {
         <StatCard title="Success/Min" value={stats.successPerMin} onClick={() => handleBoxClick('success', 'Success Logs')} />
         <StatCard title="Errors/Min" value={stats.errorPerMin} onClick={() => handleBoxClick('error', 'Error Logs')} />
         <StatCard title="Avg Time" value={`${stats.avgResponseTime} ms`} onClick={() => handleBoxClick('avg', 'Slowest Responses')} />
+        <StatCard title="Avg Speed/Min" value={`${stats.avgSpeedPerMin} ms`} /> {/* ✅ NEW */}
         <StatCard title="Outgoing/Min" value={stats.outgoingPerMin} onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')} />
         <StatCard title="Edge Hits/Min" value={stats.edgeHitsPerMin} onClick={() => handleBoxClick('cache', 'Edge Cache Hits')} />
         <StatCard title="Edge Active" value={stats.edgeActiveCount} onClick={() => handleBoxClick('edge', 'Active Edge Cached Logs')} />
@@ -143,7 +145,7 @@ function StatCard({
   onClick?: () => void;
 }) {
   return (
-    <div className="stat-card glow" onClick={onClick} style={{ cursor: 'pointer' }}>
+    <div className="stat-card glow" onClick={onClick} style={{ cursor: onClick ? 'pointer' : 'default' }}>
       <h3 className="stat-title">{title}</h3>
       {circle ? (
         <div className="circle-container">
