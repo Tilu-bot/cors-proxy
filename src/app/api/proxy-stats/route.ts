@@ -26,13 +26,22 @@ export async function GET(request: NextRequest) {
       errorPerMin,
       outgoingPerMin,
       edgeHitsPerMin,
+      totalDuration,
+      durationCount
     ] = await Promise.all([
       redis.get<number>('rpm:total'),
       redis.get<number>('rpm:success'),
       redis.get<number>('rpm:error'),
       redis.get<number>('rpm:outgoing'),
       redis.get<number>('rpm:edgeHit'),
+      redis.get<number>('rpm:totalDuration'),
+      redis.get<number>('rpm:durationCount')
     ]);
+
+    const avgResponseTimeFromRedis =
+      totalDuration && durationCount && durationCount > 0
+        ? Math.round(totalDuration / durationCount)
+        : 0;
 
     const summaryRes = await pool.query(`
       SELECT
@@ -59,7 +68,7 @@ export async function GET(request: NextRequest) {
       edgeHitsPerMin: edgeHitsPerMin || 0,
       successRate: total > 0 ? Math.round((success / total) * 100) : 100,
       errorRate: total > 0 ? 100 - Math.round((success / total) * 100) : 0,
-      avgResponseTime: Math.round(summary.avgResponseTime || 0),
+      avgResponseTime: avgResponseTimeFromRedis || Math.round(summary.avgResponseTime || 0),
       maxResponseTime: summary.maxResponseTime || 0,
       edgeCacheHits: summary.edgeCacheHits || 0,
       edgeActiveCount: summary.edgeActiveCount || 0,
@@ -93,7 +102,7 @@ export async function GET(request: NextRequest) {
       slowestLogs: slowestLogs.rows,
     };
 
-    await redis.set('dashboard:proxyStatsWithLogs', responsePayload, { ex: 300 }); // Cache full payload for fallback
+    await redis.set('dashboard:proxyStatsWithLogs', responsePayload, { ex: 300 });
 
     return NextResponse.json(responsePayload);
   } catch (err) {
