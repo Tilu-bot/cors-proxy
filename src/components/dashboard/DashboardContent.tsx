@@ -59,7 +59,7 @@ export default function DashboardContent() {
     }
 
     fetchStats();
-    const interval = setInterval(fetchStats, 10000);
+    const interval = setInterval(fetchStats, 10000); // Auto-refresh every 10s
     return () => clearInterval(interval);
   }, []);
 
@@ -72,7 +72,7 @@ export default function DashboardContent() {
       outgoing: stats.outgoingLogs,
       cache: stats.cacheLogs,
       avg: stats.slowestLogs,
-      edge: stats.cacheLogs, // reuse edge cache logs for both views
+      edge: stats.cacheLogs,
     };
     setPopupTitle(title);
     setPopupData(map[type] || []);
@@ -86,41 +86,13 @@ export default function DashboardContent() {
   return (
     <>
       <div className="dashboard-grid">
-        <StatCard
-          title="Requests/Min"
-          value={stats.totalRequestsPerMin}
-          onClick={() => handleBoxClick('incoming', 'Incoming Requests')}
-        />
-        <StatCard
-          title="Success/Min"
-          value={stats.successPerMin}
-          onClick={() => handleBoxClick('success', 'Success Logs')}
-        />
-        <StatCard
-          title="Errors/Min"
-          value={stats.errorPerMin}
-          onClick={() => handleBoxClick('error', 'Error Logs')}
-        />
-        <StatCard
-          title="Avg Time"
-          value={`${stats.avgResponseTime} ms`}
-          onClick={() => handleBoxClick('avg', 'Slowest Responses')}
-        />
-        <StatCard
-          title="Outgoing/Min"
-          value={stats.outgoingPerMin}
-          onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')}
-        />
-        <StatCard
-          title="Edge Hits/Min"
-          value={stats.edgeHitsPerMin}
-          onClick={() => handleBoxClick('cache', 'Edge Cached Hits')}
-        />
-        <StatCard
-          title="Edge Active"
-          value={stats.edgeActiveCount}
-          onClick={() => handleBoxClick('edge', 'Active Edge Cached Logs')}
-        />
+        <StatCard title="Requests/Min" value={stats.totalRequestsPerMin} onClick={() => handleBoxClick('incoming', 'Incoming Requests')} />
+        <StatCard title="Success/Min" value={stats.successPerMin} onClick={() => handleBoxClick('success', 'Success Logs')} />
+        <StatCard title="Errors/Min" value={stats.errorPerMin} onClick={() => handleBoxClick('error', 'Error Logs')} />
+        <StatCard title="Avg Time" value={`${stats.avgResponseTime} ms`} onClick={() => handleBoxClick('avg', 'Slowest Responses')} />
+        <StatCard title="Outgoing/Min" value={stats.outgoingPerMin} onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')} />
+        <StatCard title="Edge Hits/Min" value={stats.edgeHitsPerMin} onClick={() => handleBoxClick('cache', 'Edge Cached Hits')} />
+        <StatCard title="Edge Active" value={stats.edgeActiveCount} onClick={() => handleBoxClick('edge', 'Active Edge Cached Logs')} />
       </div>
 
       {showPopup && (
@@ -138,12 +110,8 @@ export default function DashboardContent() {
                     <div className="sub-details">
                       {item.status !== undefined && <span>Status: {item.status}</span>}
                       {item.duration !== undefined && <span>Time: {item.duration}ms</span>}
-                      {item.sanitized !== undefined && (
-                        <span>Sanitized: {item.sanitized ? 'Yes' : 'No'}</span>
-                      )}
-                      {item.cache_status !== undefined && (
-                        <span>Edge Cached: {item.cache_status ? 'Yes' : 'No'}</span>
-                      )}
+                      {item.sanitized !== undefined && <span>Sanitized: {item.sanitized ? 'Yes' : 'No'}</span>}
+                      {item.cache_status !== undefined && <span>Edge Cached: {item.cache_status ? 'Yes' : 'No'}</span>}
                       <span>{new Date(item.timestamp).toLocaleString()}</span>
                     </div>
                   </div>
