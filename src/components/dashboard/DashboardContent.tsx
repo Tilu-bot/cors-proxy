@@ -18,8 +18,8 @@ interface DetailedLog {
 
 interface DashboardStats {
   totalRequestsPerMin: number;
-  successRate: number;
-  errorRate: number;
+  successPerMin: number;
+  errorPerMin: number;
   avgResponseTime: number;
   maxResponseTime: number;
   edgeCacheHits: number;
@@ -57,7 +57,7 @@ export default function DashboardContent() {
     }
 
     fetchStats();
-    const interval = setInterval(fetchStats, 30000);
+    const interval = setInterval(fetchStats, 10000); // 10 sec polling for real-time feel
     return () => clearInterval(interval);
   }, []);
 
@@ -86,10 +86,10 @@ export default function DashboardContent() {
     <>
       <div className="dashboard-grid">
         <StatCard title="Requests/Min" value={stats.totalRequestsPerMin} onClick={() => handleBoxClick('incoming', 'Incoming Requests')} />
-        <StatCard title="Success Rate" value={`${stats.successRate}%`} circle progress={stats.successRate} color="green" onClick={() => handleBoxClick('success', 'Success Logs')} />
-        <StatCard title="Error Rate" value={`${stats.errorRate}%`} circle progress={stats.errorRate} color="red" onClick={() => handleBoxClick('error', 'Error Logs')} />
+        <StatCard title="Success/Min" value={stats.successPerMin} onClick={() => handleBoxClick('success', 'Success Logs')} />
+        <StatCard title="Errors/Min" value={stats.errorPerMin} onClick={() => handleBoxClick('error', 'Error Logs')} />
         <StatCard title="Avg Time" value={`${stats.avgResponseTime} ms`} onClick={() => handleBoxClick('avg', 'Slowest Responses')} />
-        <StatCard title="Outgoing" value={stats.outgoingCount} onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')} />
+        <StatCard title="Outgoing/Min" value={stats.totalRequestsPerMin} onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')} />
         <StatCard title="Edge Cached" value={stats.edgeCacheHits} onClick={() => handleBoxClick('cache', 'Edge Cache Hits')} />
       </div>
 
