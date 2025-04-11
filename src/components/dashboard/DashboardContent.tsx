@@ -2,6 +2,20 @@
 
 import { useEffect, useState } from 'react';
 
+type PopupType = 'incoming' | 'success' | 'error' | 'avg' | 'outgoing' | 'cache';
+
+interface DetailedLog {
+  id: number;
+  type: string;
+  url?: string;
+  duration?: number;
+  status?: number;
+  bytes?: number;
+  cache_status?: boolean;
+  sanitized?: boolean;
+  timestamp: string;
+}
+
 interface DashboardStats {
   totalRequestsPerMin: number;
   successRate: number;
@@ -17,18 +31,6 @@ interface DashboardStats {
   outgoingLogs: DetailedLog[];
   cacheLogs: DetailedLog[];
   slowestLogs: DetailedLog[];
-}
-
-interface DetailedLog {
-  id: number;
-  type: string;
-  url?: string;
-  duration?: number;
-  status?: number;
-  bytes?: number;
-  cache_status?: boolean;
-  sanitized?: boolean;
-  timestamp: string;
 }
 
 export default function DashboardContent() {
@@ -59,10 +61,10 @@ export default function DashboardContent() {
     return () => clearInterval(interval);
   }, []);
 
-  const handleBoxClick = (type: keyof DashboardStats, title: string) => {
+  const handleBoxClick = (type: PopupType, title: string) => {
     if (!stats) return;
 
-    const map: Record<string, DetailedLog[]> = {
+    const map: Record<PopupType, DetailedLog[]> = {
       incoming: stats.incomingLogs,
       success: stats.successLogs,
       error: stats.errorLogs,
