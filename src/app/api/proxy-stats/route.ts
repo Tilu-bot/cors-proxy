@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
         COUNT(*) FILTER (WHERE timestamp > NOW() - INTERVAL '1 minute')::int AS "outgoingPerMin",
         COUNT(*) FILTER (WHERE status BETWEEN 200 AND 299 AND timestamp > NOW() - INTERVAL '1 minute')::int AS "successPerMin",
         COUNT(*) FILTER (WHERE status >= 400 AND timestamp > NOW() - INTERVAL '1 minute')::int AS "errorPerMin",
+        COUNT(*) FILTER (WHERE edge_cached = true AND timestamp > NOW() - INTERVAL '5 minutes')::int AS "edgeActiveCount",
         AVG(duration)::float AS "avgResponseTime",
         MAX(duration)::int AS "maxResponseTime",
         COUNT(*) FILTER (WHERE type IN ('m3u8', 'vtt', 'ts')) AS "streamRequests",
@@ -51,6 +52,7 @@ export async function GET(request: NextRequest) {
       avgResponseTime: Math.round(summary.avgResponseTime || 0),
       maxResponseTime: summary.maxResponseTime || 0,
       edgeCacheHits: summary.edgeCacheHits || 0,
+      edgeActiveCount: summary.edgeActiveCount || 0,
       incomingCount: summary.streamRequests || 0,
       outgoingCount: total,
     };
@@ -74,7 +76,7 @@ export async function GET(request: NextRequest) {
       slowestLogs: slowestLogs.rows,
     };
 
-    await redis.set('dashboard:proxyStatsWithLogs', responsePayload, { ex: 300 }); // Cache for 5 minutes
+    await redis.set('dashboard:proxyStatsWithLogs', responsePayload, { ex: 300 }); // cache for 5 minutes
 
     return NextResponse.json(responsePayload);
   } catch (err) {
