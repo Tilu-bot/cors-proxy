@@ -23,7 +23,7 @@ interface DashboardStats {
   outgoingPerMin: number;
   edgeHitsPerMin: number;
   avgResponseTime: number;
-  avgSpeedPerMin: number; // ✅ NEW
+  avgSpeedPerMin: number;
   maxResponseTime: number;
   edgeActiveCount: number;
   incomingCount: number;
@@ -47,9 +47,7 @@ export default function DashboardContent() {
     async function fetchStats() {
       try {
         const res = await fetch('/api/proxy-stats', {
-          headers: {
-            Authorization: 'Bearer admin123',
-          },
+          headers: { Authorization: 'Bearer admin123' },
         });
         if (!res.ok) throw new Error('Failed to fetch stats');
         const data = await res.json();
@@ -89,14 +87,72 @@ export default function DashboardContent() {
   return (
     <>
       <div className="dashboard-grid">
-        <StatCard title="Requests/Min" value={stats.totalRequestsPerMin} onClick={() => handleBoxClick('incoming', 'Incoming Requests')} />
-        <StatCard title="Success/Min" value={stats.successPerMin} onClick={() => handleBoxClick('success', 'Success Logs')} />
-        <StatCard title="Errors/Min" value={stats.errorPerMin} onClick={() => handleBoxClick('error', 'Error Logs')} />
-        <StatCard title="Avg Time" value={`${stats.avgResponseTime} ms`} onClick={() => handleBoxClick('avg', 'Slowest Responses')} />
-        <StatCard title="Avg Speed/Min" value={`${stats.avgSpeedPerMin} ms`} /> {/* ✅ NEW */}
-        <StatCard title="Outgoing/Min" value={stats.outgoingPerMin} onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')} />
-        <StatCard title="Edge Hits/Min" value={stats.edgeHitsPerMin} onClick={() => handleBoxClick('cache', 'Edge Cache Hits')} />
-        <StatCard title="Edge Active" value={stats.edgeActiveCount} onClick={() => handleBoxClick('edge', 'Active Edge Cached Logs')} />
+        <StatCard
+          title="Requests/Min"
+          value={stats.totalRequestsPerMin}
+          circle
+          progress={Math.min((stats.totalRequestsPerMin / 200) * 100, 100)}
+          color="blue"
+          onClick={() => handleBoxClick('incoming', 'Incoming Requests')}
+        />
+        <StatCard
+          title="Success/Min"
+          value={stats.successPerMin}
+          circle
+          progress={Math.min((stats.successPerMin / 200) * 100, 100)}
+          color="green"
+          onClick={() => handleBoxClick('success', 'Success Logs')}
+        />
+        <StatCard
+          title="Errors/Min"
+          value={stats.errorPerMin}
+          circle
+          progress={Math.min((stats.errorPerMin / 100) * 100, 100)}
+          color="red"
+          onClick={() => handleBoxClick('error', 'Error Logs')}
+        />
+        <StatCard
+          title="Avg Time"
+          value={`${stats.avgResponseTime} ms`}
+          onClick={() => handleBoxClick('avg', 'Slowest Responses')}
+        />
+        <StatCard
+          title="Avg Speed/Min"
+          value={`${stats.avgSpeedPerMin} ms`}
+          circle
+          progress={Math.min((stats.avgSpeedPerMin / 5000) * 100, 100)}
+          color={
+            stats.avgSpeedPerMin < 1000
+              ? 'green'
+              : stats.avgSpeedPerMin < 3000
+              ? 'blue'
+              : 'red'
+          }
+        />
+        <StatCard
+          title="Outgoing/Min"
+          value={stats.outgoingPerMin}
+          circle
+          progress={Math.min((stats.outgoingPerMin / 200) * 100, 100)}
+          color="blue"
+          onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')}
+        />
+        <StatCard
+          title="Edge Hits/Min"
+          value={stats.edgeHitsPerMin}
+          circle
+          progress={Math.min((stats.edgeHitsPerMin / 200) * 100, 100)}
+          color="green"
+          onClick={() => handleBoxClick('cache', 'Edge Cache Hits')}
+        />
+        <StatCard
+          title="Edge Active"
+          value={stats.edgeActiveCount}
+          circle
+          progress={Math.min((stats.edgeActiveCount / 200) * 100, 100)}
+          color="blue"
+          onClick={() => handleBoxClick('edge', 'Active Edge Cached Logs')}
+        />
       </div>
 
       {showPopup && (
@@ -110,12 +166,17 @@ export default function DashboardContent() {
               ) : (
                 popupData.map((item) => (
                   <div key={item.id} className="log-entry">
-                    <code>#{item.id}</code> — <b>{item.type}</b> — {item.url?.slice(0, 60) || 'N/A'}
+                    <code>#{item.id}</code> — <b>{item.type}</b> —{' '}
+                    {item.url?.slice(0, 60) || 'N/A'}
                     <div className="sub-details">
                       {item.status !== undefined && <span>Status: {item.status}</span>}
                       {item.duration !== undefined && <span>Time: {item.duration}ms</span>}
-                      {item.sanitized !== undefined && <span>Sanitized: {item.sanitized ? 'Yes' : 'No'}</span>}
-                      {item.cache_status !== undefined && <span>Edge Cached: {item.cache_status ? 'Yes' : 'No'}</span>}
+                      {item.sanitized !== undefined && (
+                        <span>Sanitized: {item.sanitized ? 'Yes' : 'No'}</span>
+                      )}
+                      {item.cache_status !== undefined && (
+                        <span>Edge Cached: {item.cache_status ? 'Yes' : 'No'}</span>
+                      )}
                       <span>{new Date(item.timestamp).toLocaleString()}</span>
                     </div>
                   </div>
