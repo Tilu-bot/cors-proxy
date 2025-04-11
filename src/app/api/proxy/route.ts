@@ -5,12 +5,11 @@ import crypto from 'crypto';
 
 const redis = Redis.fromEnv();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-
 const REDIS_TTL = 600; // 10 minutes
 
 function rewriteM3U8Urls(m3u8: string, originalUrl: string, proxyUrl: string): string {
   const base = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
-  return m3u8.replace(/^(?!#)(.+)$/gm, line => {
+  return m3u8.replace(/^(?!#)(.+)$/gm, (line) => {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) return trimmed;
     try {
@@ -75,14 +74,12 @@ async function updateRealtimeMetrics({
   type,
   status,
   edgeCached,
-  duration,
 }: {
   type: string;
   status: number;
   edgeCached: boolean;
-  duration: number;
 }) {
-  const metrics: Array<[string, boolean]> = [
+  const metrics: [string, boolean][] = [
     ['rpm:total', true],
     ['rpm:outgoing', type === 'm3u8' || type === 'ts'],
     ['rpm:edgeHit', edgeCached],
@@ -90,29 +87,22 @@ async function updateRealtimeMetrics({
     ['rpm:error', status >= 400],
   ];
 
-  const tasks: Promise<any>[] = [];
+  const ops: Promise<any>[] = [];
 
   for (const [key, shouldRun] of metrics) {
     if (shouldRun) {
-      tasks.push(redis.incr(key));
-      tasks.push(redis.expire(key, REDIS_TTL));
+      ops.push(redis.incr(key));
+      ops.push(redis.expire(key, REDIS_TTL));
     }
   }
 
-  if (status < 500) {
-    tasks.push(redis.incrby('rpm:totalDuration', duration));
-    tasks.push(redis.incr('rpm:durationCount'));
-    tasks.push(redis.expire('rpm:totalDuration', REDIS_TTL));
-    tasks.push(redis.expire('rpm:durationCount', REDIS_TTL));
-  }
-
-  await Promise.all(tasks);
+  await Promise.all(ops);
 }
 
 async function handleProxyRequest(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url');
   if (!url || !/^https?:\/\//.test(url)) {
-    return new NextResponse('Invalid or missing url parameter', { status: 400 });
+    return NextResponse.json({ error: 'Invalid or missing url parameter' }, { status: 400 });
   }
 
   const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
@@ -124,30 +114,23 @@ async function handleProxyRequest(request: NextRequest) {
     const fetchRes = await fetch(url, {
       method: request.method,
       headers: Object.fromEntries(
-        [...request.headers.entries()].filter(([k]) =>
-          !['host', 'origin', 'referer', 'connection', 'content-length'].includes(k.toLowerCase())
+        [...request.headers.entries()].filter(
+          ([k]) => !['host', 'origin', 'referer', 'connection', 'content-length'].includes(k.toLowerCase())
         )
       ),
     });
 
     const contentType = fetchRes.headers.get('Content-Type') || '';
     const fileType = detectFileType(url, contentType);
-    const edgeCached = true;
 
     let body: string | ArrayBuffer;
-
     if (fileType === 'm3u8') {
       const text = await fetchRes.text();
       const proto = request.headers.get('x-forwarded-proto') || 'https';
       const host = request.headers.get('host') || '';
       const proxyBase = `${proto}://${host}/api/proxy`;
       body = rewriteM3U8Urls(text, url, proxyBase);
-    } else if (
-      fileType === 'vtt' ||
-      contentType.includes('text') ||
-      contentType.includes('json') ||
-      contentType.includes('xml')
-    ) {
+    } else if (fileType === 'vtt' || contentType.includes('text') || contentType.includes('json') || contentType.includes('xml')) {
       body = await fetchRes.text();
     } else {
       body = await fetchRes.arrayBuffer();
@@ -159,6 +142,8 @@ async function handleProxyRequest(request: NextRequest) {
     const headers = new Headers(fetchRes.headers);
     headers.set('Access-Control-Allow-Origin', '*');
     headers.set('Cache-Control', 'public, max-age=60');
+
+    const edgeCached = true;
 
     await Promise.all([
       logRequest({
@@ -177,7 +162,6 @@ async function handleProxyRequest(request: NextRequest) {
         type: fileType,
         status: fetchRes.status,
         edgeCached,
-        duration,
       }),
     ]);
 
@@ -206,7 +190,6 @@ async function handleProxyRequest(request: NextRequest) {
         type: 'error',
         status: 500,
         edgeCached: false,
-        duration,
       }),
     ]);
 
