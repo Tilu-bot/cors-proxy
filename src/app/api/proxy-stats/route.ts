@@ -20,11 +20,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Check Redis cache first (to reduce load)
-    const cachedStats = await redis.get('dashboard:proxyStats');
-    if (cachedStats) return NextResponse.json(cachedStats);
+    const cached = await redis.get('dashboard:proxyStatsWithLogs');
+    if (cached) return NextResponse.json(cached);
 
-    const result = await pool.query(`
+    // --- Summary stats
+    const summaryRes = await pool.query(`
       SELECT
         COUNT(*)::int AS "totalRequests",
         COUNT(CASE WHEN status BETWEEN 200 AND 299 THEN 1 END)::int AS "successfulRequests",
@@ -32,36 +32,52 @@ export async function GET(request: NextRequest) {
         AVG(duration)::float AS "avgResponseTime",
         MAX(duration)::int AS "maxResponseTime",
         COUNT(*) FILTER (WHERE timestamp > NOW() - INTERVAL '1 minute')::int AS "requestsPerMinute",
-        COUNT(*) FILTER (WHERE "type" IN ('m3u8', 'vtt', 'ts')) AS "streamRequests",
-        COUNT(*) FILTER (WHERE "status" = 200 AND "type" IN ('m3u8', 'ts')) AS "edgeCacheHits"
+        COUNT(*) FILTER (WHERE type IN ('m3u8', 'vtt', 'ts')) AS "streamRequests",
+        COUNT(*) FILTER (WHERE status = 200 AND type IN ('m3u8', 'ts')) AS "edgeCacheHits"
       FROM proxy_logs
     `);
 
-    const row = result.rows[0] || {};
+    const summary = summaryRes.rows[0] || {};
+    const total = summary.totalRequests || 0;
+    const success = summary.successfulRequests || 0;
 
-    const total = row.totalRequests || 0;
-    const success = row.successfulRequests || 0;
-
-    const successRate = total > 0 ? Math.round((success / total) * 100) : 100;
-    const errorRate = 100 - successRate;
-
-    const data = {
-      totalRequestsPerMin: row.requestsPerMinute || 0,
-      successRate,
-      errorRate,
-      avgResponseTime: Math.round(row.avgResponseTime || 0),
-      maxResponseTime: row.maxResponseTime || 0,
-      edgeCacheHits: row.edgeCacheHits || 0,
-      incomingCount: row.streamRequests || 0,
+    const summaryStats = {
+      totalRequestsPerMin: summary.requestsPerMinute || 0,
+      successRate: total > 0 ? Math.round((success / total) * 100) : 100,
+      errorRate: total > 0 ? 100 - Math.round((success / total) * 100) : 0,
+      avgResponseTime: Math.round(summary.avgResponseTime || 0),
+      maxResponseTime: summary.maxResponseTime || 0,
+      edgeCacheHits: summary.edgeCacheHits || 0,
+      incomingCount: summary.streamRequests || 0,
       outgoingCount: total,
     };
 
-    // Cache in Redis for 5 minutes
-    await redis.set('dashboard:proxyStats', data, { ex: 300 });
+    // --- Detailed logs for each box
+    const [successLogs, errorLogs, outgoingLogs, incomingLogs, cacheLogs, slowestLogs] = await Promise.all([
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs WHERE status BETWEEN 200 AND 299 ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs WHERE status >= 400 ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs WHERE type IN ('m3u8', 'vtt', 'ts') ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, edge_cached AS "cache_status", timestamp FROM proxy_logs WHERE edge_cached = true ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs ORDER BY duration DESC LIMIT 30`),
+    ]);
 
-    return NextResponse.json(data);
+    const responsePayload = {
+      ...summaryStats,
+      successLogs: successLogs.rows,
+      errorLogs: errorLogs.rows,
+      outgoingLogs: outgoingLogs.rows,
+      incomingLogs: incomingLogs.rows,
+      cacheLogs: cacheLogs.rows,
+      slowestLogs: slowestLogs.rows,
+    };
+
+    // Cache the full payload
+    await redis.set('dashboard:proxyStatsWithLogs', responsePayload, { ex: 300 });
+
+    return NextResponse.json(responsePayload);
   } catch (err) {
-    console.error('Stats API error:', err);
+    console.error('[ProxyStats Error]', err);
     return NextResponse.json({ error: 'Failed to fetch stats' }, { status: 500 });
   }
 }
