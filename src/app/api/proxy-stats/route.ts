@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const currentMinute = Math.floor(Date.now() / 60000);
+
     const [
       totalRequestsPerMin,
       successPerMin,
@@ -27,18 +29,19 @@ export async function GET(request: NextRequest) {
       totalDuration,
       durationCount
     ] = await Promise.all([
-      redis.get<number>('rpm:total'),
-      redis.get<number>('rpm:success'),
-      redis.get<number>('rpm:error'),
-      redis.get<number>('rpm:outgoing'),
-      redis.get<number>('rpm:edgeHit'),
-      redis.get<number>('rpm:totalDuration'),
-      redis.get<number>('rpm:durationCount')
+      redis.get<number>(`rpm:total:${currentMinute}`),
+      redis.get<number>(`rpm:success:${currentMinute}`),
+      redis.get<number>(`rpm:error:${currentMinute}`),
+      redis.get<number>(`rpm:outgoing:${currentMinute}`),
+      redis.get<number>(`rpm:edgeHit:${currentMinute}`),
+      redis.get<number>(`rpm:durationSum:${currentMinute}`),
+      redis.get<number>(`rpm:durationCount:${currentMinute}`)
     ]);
 
-    const avgSpeedPerMin = totalDuration && durationCount && durationCount > 0
-      ? Math.round(totalDuration / durationCount)
-      : 0;
+    const avgSpeedPerMin =
+      totalDuration && durationCount && durationCount > 0
+        ? Math.round(totalDuration / durationCount)
+        : 0;
 
     const summaryRes = await pool.query(`
       SELECT
@@ -63,7 +66,7 @@ export async function GET(request: NextRequest) {
       errorPerMin: errorPerMin || 0,
       outgoingPerMin: outgoingPerMin || 0,
       edgeHitsPerMin: edgeHitsPerMin || 0,
-      avgSpeedPerMin, // ✅ NEW
+      avgSpeedPerMin, // ✅ Corrected & dynamic
       successRate: total > 0 ? Math.round((success / total) * 100) : 100,
       errorRate: total > 0 ? 100 - Math.round((success / total) * 100) : 0,
       avgResponseTime: Math.round(summary.avgResponseTime || 0),
