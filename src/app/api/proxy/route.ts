@@ -6,7 +6,7 @@ import crypto from 'crypto';
 const redis = Redis.fromEnv();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const REDIS_TTL = 600; // 10 minutes for Redis stats
+const REDIS_TTL = 600; // 10 minutes
 
 function rewriteM3U8Urls(m3u8: string, originalUrl: string, proxyUrl: string): string {
   const base = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
@@ -92,14 +92,13 @@ async function updateRealtimeMetrics({
 
   const tasks: Promise<any>[] = [];
 
-  for (const [key, condition] of metrics) {
-    if (condition) {
+  for (const [key, shouldRun] of metrics) {
+    if (shouldRun) {
       tasks.push(redis.incr(key));
       tasks.push(redis.expire(key, REDIS_TTL));
     }
   }
 
-  // Track average duration per minute
   if (status < 500) {
     tasks.push(redis.incrby('rpm:totalDuration', duration));
     tasks.push(redis.incr('rpm:durationCount'));
@@ -112,50 +111,54 @@ async function updateRealtimeMetrics({
 
 async function handleProxyRequest(request: NextRequest) {
   const url = request.nextUrl.searchParams.get('url');
-  const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
-  const id = crypto.randomUUID();
-  const start = Date.now();
-
   if (!url || !/^https?:\/\//.test(url)) {
     return new NextResponse('Invalid or missing url parameter', { status: 400 });
   }
 
+  const ip = request.headers.get('x-forwarded-for') || '0.0.0.0';
+  const id = crypto.randomUUID();
+  const start = Date.now();
   const sanitized = url !== sanitizeUrl(url);
 
   try {
     const fetchRes = await fetch(url, {
       method: request.method,
       headers: Object.fromEntries(
-        [...request.headers.entries()].filter(([k]) => !['host', 'origin', 'referer'].includes(k))
+        [...request.headers.entries()].filter(([k]) =>
+          !['host', 'origin', 'referer', 'connection', 'content-length'].includes(k.toLowerCase())
+        )
       ),
     });
 
     const contentType = fetchRes.headers.get('Content-Type') || '';
     const fileType = detectFileType(url, contentType);
+    const edgeCached = true;
 
     let body: string | ArrayBuffer;
+
     if (fileType === 'm3u8') {
       const text = await fetchRes.text();
       const proto = request.headers.get('x-forwarded-proto') || 'https';
       const host = request.headers.get('host') || '';
       const proxyBase = `${proto}://${host}/api/proxy`;
       body = rewriteM3U8Urls(text, url, proxyBase);
-    } else if (fileType === 'vtt') {
-      body = await fetchRes.text();
-    } else if (contentType.includes('text') || contentType.includes('json') || contentType.includes('xml')) {
+    } else if (
+      fileType === 'vtt' ||
+      contentType.includes('text') ||
+      contentType.includes('json') ||
+      contentType.includes('xml')
+    ) {
       body = await fetchRes.text();
     } else {
       body = await fetchRes.arrayBuffer();
     }
 
-    const bytes = typeof body === 'string' ? body.length : body.byteLength;
+    const bytes = typeof body === 'string' ? Buffer.byteLength(body) : body.byteLength;
     const duration = Date.now() - start;
 
     const headers = new Headers(fetchRes.headers);
     headers.set('Access-Control-Allow-Origin', '*');
     headers.set('Cache-Control', 'public, max-age=60');
-
-    const edgeCached = true;
 
     await Promise.all([
       logRequest({
@@ -217,7 +220,7 @@ async function handleProxyRequest(request: NextRequest) {
   }
 }
 
-// Support all methods
+// Export all HTTP methods
 export async function GET(req: NextRequest) {
   return handleProxyRequest(req);
 }
