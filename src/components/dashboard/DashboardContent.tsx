@@ -20,6 +20,8 @@ interface DashboardStats {
   totalRequestsPerMin: number;
   successPerMin: number;
   errorPerMin: number;
+  outgoingPerMin: number;
+  edgeHitsPerMin: number;
   avgResponseTime: number;
   maxResponseTime: number;
   edgeActiveCount: number;
@@ -57,7 +59,7 @@ export default function DashboardContent() {
     }
 
     fetchStats();
-    const interval = setInterval(fetchStats, 10000);
+    const interval = setInterval(fetchStats, 10000); // Refresh every 10s
     return () => clearInterval(interval);
   }, []);
 
@@ -105,13 +107,18 @@ export default function DashboardContent() {
         />
         <StatCard
           title="Outgoing/Min"
-          value={stats.totalRequestsPerMin}
+          value={stats.outgoingPerMin}
           onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')}
+        />
+        <StatCard
+          title="Edge Hits/Min"
+          value={stats.edgeHitsPerMin}
+          onClick={() => handleBoxClick('cache', 'Edge Cache Hits')}
         />
         <StatCard
           title="Edge Active"
           value={stats.edgeActiveCount}
-          onClick={() => handleBoxClick('cache', 'Edge Cache Hits')}
+          onClick={() => handleBoxClick('cache', 'Active Edge Cached Logs')}
         />
       </div>
 
@@ -124,8 +131,7 @@ export default function DashboardContent() {
               {popupData.length === 0 && <p>No data found.</p>}
               {popupData.map((item) => (
                 <div key={item.id} className="log-entry">
-                  <code>#{item.id}</code> — <b>{item.type}</b> —{' '}
-                  {item.url?.slice(0, 60) || 'N/A'}
+                  <code>#{item.id}</code> — <b>{item.type}</b> — {item.url?.slice(0, 60) || 'N/A'}
                   <div className="sub-details">
                     {item.status !== undefined && <span>Status: {item.status}</span>}
                     {item.duration !== undefined && <span>Time: {item.duration}ms</span>}
