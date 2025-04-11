@@ -5,7 +5,7 @@ import crypto from 'crypto';
 
 const redis = Redis.fromEnv();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const REDIS_TTL = 600; // 10 minutes
+const REDIS_TTL = 600; // 10 minutes for Redis stats
 
 function detectFileType(url: string, contentType: string): string {
   if (url.endsWith('.m3u8') || contentType.includes('mpegurl')) return 'm3u8';
@@ -34,22 +34,23 @@ async function logRequest(details: {
   ip: string;
 }) {
   try {
-    await pool.query(`
-      INSERT INTO proxy_logs
-        (uuid, url, status, bytes, duration, type, sanitized, from_cache, edge_cached, ip, timestamp)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
-    `, [
-      details.id,
-      details.url,
-      details.status,
-      details.bytes,
-      details.duration,
-      details.type,
-      details.sanitized,
-      details.fromCache,
-      details.edgeCached,
-      details.ip
-    ]);
+    await pool.query(
+      `INSERT INTO proxy_logs 
+       (uuid, url, status, bytes, duration, type, sanitized, from_cache, edge_cached, ip, timestamp)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())`,
+      [
+        details.id,
+        details.url,
+        details.status,
+        details.bytes,
+        details.duration,
+        details.type,
+        details.sanitized,
+        details.fromCache,
+        details.edgeCached,
+        details.ip,
+      ]
+    );
   } catch (err) {
     console.error('[DB Log Error]', err);
   }
@@ -59,7 +60,7 @@ async function updateRealtimeMetrics({
   type,
   status,
   edgeCached,
-  duration
+  duration,
 }: {
   type: string;
   status: number;
@@ -78,10 +79,12 @@ async function updateRealtimeMetrics({
 
   for (const [key, shouldRun] of metrics) {
     if (shouldRun) {
-      ops.push(redis.incr(key), redis.expire(key, REDIS_TTL));
+      ops.push(redis.incr(key));
+      ops.push(redis.expire(key, REDIS_TTL));
     }
   }
 
+  // Duration average tracking
   if (status < 500) {
     ops.push(redis.incrby('rpm:totalDuration', duration));
     ops.push(redis.incr('rpm:durationCount'));
@@ -107,7 +110,9 @@ async function handleProxyRequest(request: NextRequest) {
     const fetchRes = await fetch(url, {
       method: request.method,
       headers: Object.fromEntries(
-        [...request.headers.entries()].filter(([k]) => !['host', 'origin', 'referer', 'connection', 'content-length'].includes(k.toLowerCase()))
+        [...request.headers.entries()].filter(
+          ([k]) => !['host', 'origin', 'referer', 'connection', 'content-length'].includes(k.toLowerCase())
+        )
       ),
     });
 
@@ -130,8 +135,24 @@ async function handleProxyRequest(request: NextRequest) {
     headers.set('Cache-Control', 'public, max-age=60');
 
     await Promise.all([
-      logRequest({ id, url, status: fetchRes.status, bytes, duration, type: fileType, sanitized, fromCache: false, edgeCached, ip }),
-      updateRealtimeMetrics({ type: fileType, status: fetchRes.status, edgeCached, duration })
+      logRequest({
+        id,
+        url,
+        status: fetchRes.status,
+        bytes,
+        duration,
+        type: fileType,
+        sanitized,
+        fromCache: false,
+        edgeCached,
+        ip,
+      }),
+      updateRealtimeMetrics({
+        type: fileType,
+        status: fetchRes.status,
+        edgeCached,
+        duration,
+      }),
     ]);
 
     return new NextResponse(body, {
@@ -143,8 +164,24 @@ async function handleProxyRequest(request: NextRequest) {
     console.error('[Proxy Error]', err);
 
     await Promise.all([
-      logRequest({ id, url, status: 500, bytes: 0, duration, type: 'error', sanitized, fromCache: false, edgeCached: false, ip }),
-      updateRealtimeMetrics({ type: 'error', status: 500, edgeCached: false, duration })
+      logRequest({
+        id,
+        url,
+        status: 500,
+        bytes: 0,
+        duration,
+        type: 'error',
+        sanitized,
+        fromCache: false,
+        edgeCached: false,
+        ip,
+      }),
+      updateRealtimeMetrics({
+        type: 'error',
+        status: 500,
+        edgeCached: false,
+        duration,
+      }),
     ]);
 
     return new NextResponse('Proxy fetch failed', {
@@ -158,10 +195,18 @@ async function handleProxyRequest(request: NextRequest) {
 }
 
 // Export all HTTP methods
-export async function GET(req: NextRequest) { return handleProxyRequest(req); }
-export async function POST(req: NextRequest) { return handleProxyRequest(req); }
-export async function PUT(req: NextRequest) { return handleProxyRequest(req); }
-export async function DELETE(req: NextRequest) { return handleProxyRequest(req); }
+export async function GET(req: NextRequest) {
+  return handleProxyRequest(req);
+}
+export async function POST(req: NextRequest) {
+  return handleProxyRequest(req);
+}
+export async function PUT(req: NextRequest) {
+  return handleProxyRequest(req);
+}
+export async function DELETE(req: NextRequest) {
+  return handleProxyRequest(req);
+}
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
