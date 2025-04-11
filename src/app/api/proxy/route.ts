@@ -23,15 +23,15 @@ function rewriteM3U8Urls(m3u8: string, originalUrl: string, proxyUrl: string): s
 function detectFileType(url: string, contentType: string): string {
   if (url.endsWith('.m3u8') || contentType.includes('mpegurl')) return 'm3u8';
   if (url.endsWith('.vtt') || contentType.includes('text/vtt')) return 'vtt';
-  if (url.endsWith('.mpd') || contentType.includes('dash+xml')) return 'mpd';
   if (url.endsWith('.ts')) return 'ts';
+  if (url.endsWith('.mpd')) return 'mpd';
   if (contentType.includes('image')) return 'image';
   if (contentType.includes('json')) return 'json';
   return 'other';
 }
 
 function sanitizeUrl(url: string): string {
-  return url.split('?')[0]; // basic sanitization (can enhance)
+  return url.split('?')[0];
 }
 
 async function logRequest(details: {
@@ -68,29 +68,8 @@ async function handleProxyRequest(request: NextRequest) {
   }
 
   const start = Date.now();
-  const sanitized = url === sanitizeUrl(url) ? false : true;
+  const sanitized = url !== sanitizeUrl(url);
   const id = crypto.randomUUID();
-
-  const redisKey = `proxy-cache:${url}`;
-  const cached = await redis.get<string>(redisKey);
-
-  if (cached) {
-    const duration = Date.now() - start;
-    await logRequest({
-      id, url, status: 200, bytes: cached.length,
-      duration, type: detectFileType(url, ''), sanitized,
-      fromCache: true, edgeCached: false,
-    });
-
-    return new NextResponse(cached, {
-      status: 200,
-      headers: {
-        'Content-Type': url.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'text/plain',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=60',
-      },
-    });
-  }
 
   try {
     const fetchRes = await fetch(url, {
@@ -111,7 +90,7 @@ async function handleProxyRequest(request: NextRequest) {
       const proxyBase = `${proto}://${host}/api/proxy`;
       body = rewriteM3U8Urls(text, url, proxyBase);
     } else if (fileType === 'vtt') {
-      body = await fetchRes.text();
+      body = await fetchRes.text(); // no rewrite yet
     } else if (contentType.includes('text') || contentType.includes('json') || contentType.includes('xml')) {
       body = await fetchRes.text();
     } else {
@@ -121,17 +100,20 @@ async function handleProxyRequest(request: NextRequest) {
     const bytes = typeof body === 'string' ? body.length : body.byteLength;
     const duration = Date.now() - start;
 
-    if (fileType === 'm3u8' || fileType === 'vtt') {
-      await redis.set(redisKey, typeof body === 'string' ? body : Buffer.from(body).toString(), { ex: 300 });
-    }
-
     const headers = new Headers(fetchRes.headers);
     headers.set('Access-Control-Allow-Origin', '*');
     headers.set('Cache-Control', 'public, max-age=60');
 
     await logRequest({
-      id, url, status: fetchRes.status, bytes, duration,
-      type: fileType, sanitized, fromCache: false, edgeCached: true,
+      id,
+      url,
+      status: fetchRes.status,
+      bytes,
+      duration,
+      type: fileType,
+      sanitized,
+      fromCache: false,
+      edgeCached: true,
     });
 
     return new NextResponse(body, {
@@ -143,8 +125,15 @@ async function handleProxyRequest(request: NextRequest) {
     console.error('[Proxy Error]', err);
 
     await logRequest({
-      id, url, status: 500, bytes: 0,
-      duration, type: 'error', sanitized, fromCache: false, edgeCached: false,
+      id,
+      url,
+      status: 500,
+      bytes: 0,
+      duration,
+      type: 'error',
+      sanitized,
+      fromCache: false,
+      edgeCached: false,
     });
 
     return new NextResponse('Proxy fetch failed', {
@@ -157,6 +146,7 @@ async function handleProxyRequest(request: NextRequest) {
   }
 }
 
+// Support all methods
 export async function GET(req: NextRequest) {
   return handleProxyRequest(req);
 }
