@@ -6,6 +6,8 @@ import crypto from 'crypto';
 const redis = Redis.fromEnv();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+const REDIS_TTL = 600; // ⏱️ 10 minutes
+
 function rewriteM3U8Urls(m3u8: string, originalUrl: string, proxyUrl: string): string {
   const base = originalUrl.substring(0, originalUrl.lastIndexOf('/') + 1);
   return m3u8.replace(/^(?!#)(.+)$/gm, line => {
@@ -71,20 +73,24 @@ async function updateRealtimeMetrics({
   status: number;
   edgeCached: boolean;
 }) {
-  const keys: [string, number][] = [
-    ['rpm:total', 60],
-    ...(type === 'm3u8' || type === 'ts' ? [['rpm:outgoing', 60]] : []),
-    ...(edgeCached ? [['rpm:edgeHit', 60]] : []),
-    ...(status >= 200 && status < 300 ? [['rpm:success', 60]] : []),
-    ...(status >= 400 ? [['rpm:error', 60]] : []),
+  const ops: Promise<any>[] = [];
+
+  const metrics: [string, boolean][] = [
+    ['rpm:total', true],
+    ['rpm:outgoing', type === 'm3u8' || type === 'ts'],
+    ['rpm:edgeHit', edgeCached],
+    ['rpm:success', status >= 200 && status < 300],
+    ['rpm:error', status >= 400],
   ];
 
-  await Promise.all(
-    keys.flatMap(([key, ttl]) => [
-      redis.incr(key),
-      redis.expire(key, ttl),
-    ])
-  );
+  for (const [key, condition] of metrics) {
+    if (condition) {
+      ops.push(redis.incr(key));
+      ops.push(redis.expire(key, REDIS_TTL));
+    }
+  }
+
+  await Promise.all(ops);
 }
 
 async function handleProxyRequest(request: NextRequest) {
@@ -118,7 +124,7 @@ async function handleProxyRequest(request: NextRequest) {
       const proxyBase = `${proto}://${host}/api/proxy`;
       body = rewriteM3U8Urls(text, url, proxyBase);
     } else if (fileType === 'vtt') {
-      body = await fetchRes.text(); // For future VTT rewriting
+      body = await fetchRes.text();
     } else if (contentType.includes('text') || contentType.includes('json') || contentType.includes('xml')) {
       body = await fetchRes.text();
     } else {
@@ -130,7 +136,7 @@ async function handleProxyRequest(request: NextRequest) {
 
     const headers = new Headers(fetchRes.headers);
     headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Cache-Control', 'public, max-age=60'); // Edge cache hint
+    headers.set('Cache-Control', 'public, max-age=60');
 
     const edgeCached = true;
 
@@ -139,11 +145,7 @@ async function handleProxyRequest(request: NextRequest) {
         id, url, status: fetchRes.status, bytes, duration,
         type: fileType, sanitized, fromCache: false, edgeCached, ip,
       }),
-      updateRealtimeMetrics({
-        type: fileType,
-        status: fetchRes.status,
-        edgeCached,
-      }),
+      updateRealtimeMetrics({ type: fileType, status: fetchRes.status, edgeCached }),
     ]);
 
     return new NextResponse(body, {
@@ -159,11 +161,7 @@ async function handleProxyRequest(request: NextRequest) {
         id, url, status: 500, bytes: 0, duration,
         type: 'error', sanitized, fromCache: false, edgeCached: false, ip,
       }),
-      updateRealtimeMetrics({
-        type: 'error',
-        status: 500,
-        edgeCached: false,
-      }),
+      updateRealtimeMetrics({ type: 'error', status: 500, edgeCached: false }),
     ]);
 
     return new NextResponse('Proxy fetch failed', {
