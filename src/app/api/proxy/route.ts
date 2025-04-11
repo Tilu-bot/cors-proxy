@@ -71,25 +71,20 @@ async function updateRealtimeMetrics({
   status: number;
   edgeCached: boolean;
 }) {
-  const promises = [];
+  const keys = [
+    ['rpm:total', 60],
+    ...(type === 'm3u8' || type === 'ts' ? [['rpm:outgoing', 60]] : []),
+    ...(edgeCached ? [['rpm:edgeHit', 60]] : []),
+    ...(status >= 200 && status < 300 ? [['rpm:success', 60]] : []),
+    ...(status >= 400 ? [['rpm:error', 60]] : []),
+  ];
 
-  promises.push(redis.incr('rpm:total'), redis.expire('rpm:total', 60));
-
-  if (type === 'm3u8' || type === 'ts') {
-    promises.push(redis.incr('rpm:outgoing'), redis.expire('rpm:outgoing', 60));
-  }
-
-  if (edgeCached) {
-    promises.push(redis.incr('rpm:edgeHit'), redis.expire('rpm:edgeHit', 60));
-  }
-
-  if (status >= 200 && status < 300) {
-    promises.push(redis.incr('rpm:success'), redis.expire('rpm:success', 60));
-  } else if (status >= 400) {
-    promises.push(redis.incr('rpm:error'), redis.expire('rpm:error', 60));
-  }
-
-  await Promise.all(promises);
+  await Promise.all(
+    keys.flatMap(([key, ttl]) => [
+      redis.incr(key),
+      redis.expire(key as string, ttl as number),
+    ])
+  );
 }
 
 async function handleProxyRequest(request: NextRequest) {
@@ -123,7 +118,7 @@ async function handleProxyRequest(request: NextRequest) {
       const proxyBase = `${proto}://${host}/api/proxy`;
       body = rewriteM3U8Urls(text, url, proxyBase);
     } else if (fileType === 'vtt') {
-      body = await fetchRes.text(); // for future: rewriteVTT()
+      body = await fetchRes.text(); // for future .vtt rewrites
     } else if (contentType.includes('text') || contentType.includes('json') || contentType.includes('xml')) {
       body = await fetchRes.text();
     } else {
@@ -135,16 +130,14 @@ async function handleProxyRequest(request: NextRequest) {
 
     const headers = new Headers(fetchRes.headers);
     headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Cache-Control', 'public, max-age=60'); // Edge cache
+    headers.set('Cache-Control', 'public, max-age=60');
 
     const edgeCached = true;
 
-    // log + metrics
     await Promise.all([
       logRequest({
-        id, url, status: fetchRes.status, bytes,
-        duration, type: fileType, sanitized,
-        fromCache: false, edgeCached, ip
+        id, url, status: fetchRes.status, bytes, duration,
+        type: fileType, sanitized, fromCache: false, edgeCached, ip,
       }),
       updateRealtimeMetrics({
         type: fileType,
@@ -163,9 +156,8 @@ async function handleProxyRequest(request: NextRequest) {
 
     await Promise.all([
       logRequest({
-        id, url, status: 500, bytes: 0,
-        duration, type: 'error', sanitized,
-        fromCache: false, edgeCached: false, ip
+        id, url, status: 500, bytes: 0, duration,
+        type: 'error', sanitized, fromCache: false, edgeCached: false, ip,
       }),
       updateRealtimeMetrics({
         type: 'error',
@@ -184,6 +176,7 @@ async function handleProxyRequest(request: NextRequest) {
   }
 }
 
+// Support all HTTP methods
 export async function GET(req: NextRequest) {
   return handleProxyRequest(req);
 }
