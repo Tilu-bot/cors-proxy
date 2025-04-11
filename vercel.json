@@ -1,5 +1,5 @@
 {
-    "cron": [
+    "crons": [
       {
         "path": "/api/prune-logs",
         "schedule": "0 3 * * *"
