@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-type PopupType = 'incoming' | 'success' | 'error' | 'avg' | 'outgoing' | 'cache';
+type PopupType = 'incoming' | 'success' | 'error' | 'avg' | 'outgoing' | 'cache' | 'edge';
 
 interface DetailedLog {
   id: number;
@@ -59,7 +59,7 @@ export default function DashboardContent() {
     }
 
     fetchStats();
-    const interval = setInterval(fetchStats, 10000); // Refresh every 10s
+    const interval = setInterval(fetchStats, 10000);
     return () => clearInterval(interval);
   }, []);
 
@@ -72,6 +72,7 @@ export default function DashboardContent() {
       outgoing: stats.outgoingLogs,
       cache: stats.cacheLogs,
       avg: stats.slowestLogs,
+      edge: stats.cacheLogs, // reuse edge cache logs for both views
     };
     setPopupTitle(title);
     setPopupData(map[type] || []);
@@ -113,12 +114,12 @@ export default function DashboardContent() {
         <StatCard
           title="Edge Hits/Min"
           value={stats.edgeHitsPerMin}
-          onClick={() => handleBoxClick('cache', 'Edge Cache Hits')}
+          onClick={() => handleBoxClick('cache', 'Edge Cached Hits')}
         />
         <StatCard
           title="Edge Active"
           value={stats.edgeActiveCount}
-          onClick={() => handleBoxClick('cache', 'Active Edge Cached Logs')}
+          onClick={() => handleBoxClick('edge', 'Active Edge Cached Logs')}
         />
       </div>
 
@@ -128,23 +129,26 @@ export default function DashboardContent() {
             <h2>{popupTitle}</h2>
             <button onClick={() => setShowPopup(false)}>Close</button>
             <div className="popup-content">
-              {popupData.length === 0 && <p>No data found.</p>}
-              {popupData.map((item) => (
-                <div key={item.id} className="log-entry">
-                  <code>#{item.id}</code> — <b>{item.type}</b> — {item.url?.slice(0, 60) || 'N/A'}
-                  <div className="sub-details">
-                    {item.status !== undefined && <span>Status: {item.status}</span>}
-                    {item.duration !== undefined && <span>Time: {item.duration}ms</span>}
-                    {item.sanitized !== undefined && (
-                      <span>Sanitized: {item.sanitized ? 'Yes' : 'No'}</span>
-                    )}
-                    {item.cache_status !== undefined && (
-                      <span>Edge Cached: {item.cache_status ? 'Yes' : 'No'}</span>
-                    )}
-                    <span>{new Date(item.timestamp).toLocaleString()}</span>
+              {popupData.length === 0 ? (
+                <p>No data found.</p>
+              ) : (
+                popupData.map((item) => (
+                  <div key={item.id} className="log-entry">
+                    <code>#{item.id}</code> — <b>{item.type}</b> — {item.url?.slice(0, 60) || 'N/A'}
+                    <div className="sub-details">
+                      {item.status !== undefined && <span>Status: {item.status}</span>}
+                      {item.duration !== undefined && <span>Time: {item.duration}ms</span>}
+                      {item.sanitized !== undefined && (
+                        <span>Sanitized: {item.sanitized ? 'Yes' : 'No'}</span>
+                      )}
+                      {item.cache_status !== undefined && (
+                        <span>Edge Cached: {item.cache_status ? 'Yes' : 'No'}</span>
+                      )}
+                      <span>{new Date(item.timestamp).toLocaleString()}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
