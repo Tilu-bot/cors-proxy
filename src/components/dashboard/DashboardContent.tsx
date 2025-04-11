@@ -22,7 +22,7 @@ interface DashboardStats {
   errorPerMin: number;
   avgResponseTime: number;
   maxResponseTime: number;
-  edgeCacheHits: number;
+  edgeActiveCount: number;
   incomingCount: number;
   outgoingCount: number;
   successLogs: DetailedLog[];
@@ -57,13 +57,12 @@ export default function DashboardContent() {
     }
 
     fetchStats();
-    const interval = setInterval(fetchStats, 10000); // 10 sec polling for real-time feel
+    const interval = setInterval(fetchStats, 10000); // 10s polling
     return () => clearInterval(interval);
   }, []);
 
   const handleBoxClick = (type: PopupType, title: string) => {
     if (!stats) return;
-
     const map: Record<PopupType, DetailedLog[]> = {
       incoming: stats.incomingLogs,
       success: stats.successLogs,
@@ -72,7 +71,6 @@ export default function DashboardContent() {
       cache: stats.cacheLogs,
       avg: stats.slowestLogs,
     };
-
     setPopupTitle(title);
     setPopupData(map[type] || []);
     setShowPopup(true);
@@ -90,7 +88,7 @@ export default function DashboardContent() {
         <StatCard title="Errors/Min" value={stats.errorPerMin} onClick={() => handleBoxClick('error', 'Error Logs')} />
         <StatCard title="Avg Time" value={`${stats.avgResponseTime} ms`} onClick={() => handleBoxClick('avg', 'Slowest Responses')} />
         <StatCard title="Outgoing/Min" value={stats.totalRequestsPerMin} onClick={() => handleBoxClick('outgoing', 'Outgoing Requests')} />
-        <StatCard title="Edge Cached" value={stats.edgeCacheHits} onClick={() => handleBoxClick('cache', 'Edge Cache Hits')} />
+        <StatCard title="Edge Active" value={stats.edgeActiveCount} onClick={() => handleBoxClick('cache', 'Edge Cache Hits')} />
       </div>
 
       {showPopup && (
