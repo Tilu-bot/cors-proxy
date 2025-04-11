@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       outgoingPerMin,
       edgeHitsPerMin,
       totalDuration,
-      durationCount,
+      durationCount
     ] = await Promise.all([
       redis.get<number>('rpm:total'),
       redis.get<number>('rpm:success'),
@@ -33,13 +33,12 @@ export async function GET(request: NextRequest) {
       redis.get<number>('rpm:outgoing'),
       redis.get<number>('rpm:edgeHit'),
       redis.get<number>('rpm:totalDuration'),
-      redis.get<number>('rpm:durationCount'),
+      redis.get<number>('rpm:durationCount')
     ]);
 
-    const avgSpeedPerMin =
-      totalDuration && durationCount && durationCount > 0
-        ? Math.round(totalDuration / durationCount)
-        : 0;
+    const avgSpeedPerMin = totalDuration && durationCount && durationCount > 0
+      ? Math.round(totalDuration / durationCount)
+      : 0;
 
     const summaryRes = await pool.query(`
       SELECT
@@ -64,6 +63,7 @@ export async function GET(request: NextRequest) {
       errorPerMin: errorPerMin || 0,
       outgoingPerMin: outgoingPerMin || 0,
       edgeHitsPerMin: edgeHitsPerMin || 0,
+      avgSpeedPerMin, // ✅ NEW
       successRate: total > 0 ? Math.round((success / total) * 100) : 100,
       errorRate: total > 0 ? 100 - Math.round((success / total) * 100) : 0,
       avgResponseTime: Math.round(summary.avgResponseTime || 0),
@@ -72,7 +72,6 @@ export async function GET(request: NextRequest) {
       edgeActiveCount: summary.edgeActiveCount || 0,
       incomingCount: summary.streamRequests || 0,
       outgoingCount: total,
-      avgSpeedPerMin: avgSpeedPerMin,
     };
 
     const [
@@ -81,42 +80,14 @@ export async function GET(request: NextRequest) {
       outgoingLogs,
       incomingLogs,
       cacheLogs,
-      slowestLogs,
+      slowestLogs
     ] = await Promise.all([
-      pool.query(`
-        SELECT id, type, url, status, duration, sanitized, timestamp
-        FROM proxy_logs
-        WHERE status BETWEEN 200 AND 299
-        ORDER BY timestamp DESC LIMIT 30
-      `),
-      pool.query(`
-        SELECT id, type, url, status, duration, sanitized, timestamp
-        FROM proxy_logs
-        WHERE status >= 400
-        ORDER BY timestamp DESC LIMIT 30
-      `),
-      pool.query(`
-        SELECT id, type, url, status, duration, sanitized, timestamp
-        FROM proxy_logs
-        ORDER BY timestamp DESC LIMIT 30
-      `),
-      pool.query(`
-        SELECT id, type, url, status, duration, sanitized, timestamp
-        FROM proxy_logs
-        WHERE type IN ('m3u8', 'vtt', 'ts')
-        ORDER BY timestamp DESC LIMIT 30
-      `),
-      pool.query(`
-        SELECT id, type, url, status, duration, sanitized, edge_cached AS "cache_status", timestamp
-        FROM proxy_logs
-        WHERE edge_cached = true
-        ORDER BY timestamp DESC LIMIT 30
-      `),
-      pool.query(`
-        SELECT id, type, url, status, duration, sanitized, timestamp
-        FROM proxy_logs
-        ORDER BY duration DESC LIMIT 30
-      `),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs WHERE status BETWEEN 200 AND 299 ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs WHERE status >= 400 ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs WHERE type IN ('m3u8', 'vtt', 'ts') ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, edge_cached AS "cache_status", timestamp FROM proxy_logs WHERE edge_cached = true ORDER BY timestamp DESC LIMIT 30`),
+      pool.query(`SELECT id, type, url, status, duration, sanitized, timestamp FROM proxy_logs ORDER BY duration DESC LIMIT 30`)
     ]);
 
     const responsePayload = {
@@ -126,7 +97,7 @@ export async function GET(request: NextRequest) {
       outgoingLogs: outgoingLogs.rows,
       incomingLogs: incomingLogs.rows,
       cacheLogs: cacheLogs.rows,
-      slowestLogs: slowestLogs.rows,
+      slowestLogs: slowestLogs.rows
     };
 
     await redis.set('dashboard:proxyStatsWithLogs', responsePayload, { ex: 300 });
