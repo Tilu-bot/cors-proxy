@@ -71,7 +71,7 @@ async function updateRealtimeMetrics({
   status: number;
   edgeCached: boolean;
 }) {
-  const keys = [
+  const keys: [string, number][] = [
     ['rpm:total', 60],
     ...(type === 'm3u8' || type === 'ts' ? [['rpm:outgoing', 60]] : []),
     ...(edgeCached ? [['rpm:edgeHit', 60]] : []),
@@ -82,7 +82,7 @@ async function updateRealtimeMetrics({
   await Promise.all(
     keys.flatMap(([key, ttl]) => [
       redis.incr(key),
-      redis.expire(key as string, ttl as number),
+      redis.expire(key, ttl),
     ])
   );
 }
@@ -118,7 +118,7 @@ async function handleProxyRequest(request: NextRequest) {
       const proxyBase = `${proto}://${host}/api/proxy`;
       body = rewriteM3U8Urls(text, url, proxyBase);
     } else if (fileType === 'vtt') {
-      body = await fetchRes.text(); // for future .vtt rewrites
+      body = await fetchRes.text(); // For future VTT rewriting
     } else if (contentType.includes('text') || contentType.includes('json') || contentType.includes('xml')) {
       body = await fetchRes.text();
     } else {
@@ -130,7 +130,7 @@ async function handleProxyRequest(request: NextRequest) {
 
     const headers = new Headers(fetchRes.headers);
     headers.set('Access-Control-Allow-Origin', '*');
-    headers.set('Cache-Control', 'public, max-age=60');
+    headers.set('Cache-Control', 'public, max-age=60'); // Edge cache hint
 
     const edgeCached = true;
 
@@ -176,7 +176,7 @@ async function handleProxyRequest(request: NextRequest) {
   }
 }
 
-// Support all HTTP methods
+// Export handlers for all HTTP methods
 export async function GET(req: NextRequest) {
   return handleProxyRequest(req);
 }
